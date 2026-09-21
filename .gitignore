@@ -49,3 +49,6 @@ artifacts/
 
 # Local third-party SDKs and machine-only project state
 .local/
+
+# Local PetOrb runtime data
+.data/
