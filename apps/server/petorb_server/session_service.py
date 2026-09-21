@@ -44,18 +44,16 @@ class SessionService:
         self.store = store
 
     async def ingest(self, images: list[UploadFile]) -> SamplingSessionResponse:
-        session_id = self.store.get_active_session_id()
         if not images:
             raise IngestError("EMPTY_BATCH", "at least one JPEG is required", 400)
         if len(images) > 10:
             raise IngestError("TOO_MANY_IMAGES", "a batch may contain at most 10 JPEG images", 400)
 
+        session_id = self.store.claim_ready_session()
         session_dir = self.store.sessions_dir / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
         temporary_paths: list[Path] = []
         processed: list[ProcessedFrame] = []
-        self.store.set_status(session_id, "RECEIVING")
-
         try:
             staged: list[tuple[str, str, bytes, Path]] = []
             for upload in images:

@@ -10,7 +10,13 @@ from .detector import DetectorError, detect_image
 from .schemas import PetOrbDetectResult
 from .session_models import SamplingSessionResponse, SessionCreateRequest
 from .session_service import AnalysisError, IngestError, SessionService
-from .session_store import ActiveSessionExistsError, NoActiveSessionError, SessionNotFoundError, SessionStore
+from .session_store import (
+    ActiveSessionExistsError,
+    NoActiveSessionError,
+    SessionBusyError,
+    SessionNotFoundError,
+    SessionStore,
+)
 from .settings import Settings
 
 
@@ -56,6 +62,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return await session_service.ingest(images)
         except NoActiveSessionError as exc:
             raise HTTPException(status_code=409, detail={"code": "NO_ACTIVE_SESSION", "message": str(exc)}) from exc
+        except SessionBusyError as exc:
+            raise HTTPException(status_code=409, detail={"code": "SESSION_BUSY", "message": str(exc)}) from exc
         except IngestError as exc:
             raise HTTPException(
                 status_code=exc.http_status,

@@ -22,6 +22,10 @@ class NoActiveSessionError(RuntimeError):
     pass
 
 
+class SessionBusyError(RuntimeError):
+    pass
+
+
 class SessionStore:
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
@@ -90,16 +94,32 @@ class SessionStore:
             connection.close()
         return self.get_session(session_id)
 
-    def get_active_session_id(self) -> str:
+    def claim_ready_session(self) -> str:
         placeholders = ",".join("?" for _ in ACTIVE_STATUSES)
-        with self._connect() as connection:
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                f"SELECT id FROM sessions WHERE status IN ({placeholders}) ORDER BY created_at DESC LIMIT 1",
+                f"SELECT id, status FROM sessions WHERE status IN ({placeholders}) ORDER BY created_at DESC LIMIT 1",
                 ACTIVE_STATUSES,
             ).fetchone()
-        if row is None:
-            raise NoActiveSessionError("no active sampling session")
-        return str(row["id"])
+            if row is None:
+                raise NoActiveSessionError("no active sampling session")
+            if row["status"] != "READY":
+                raise SessionBusyError(f"sampling session {row['id']} is already {row['status']}")
+            updated = connection.execute(
+                "UPDATE sessions SET status = 'RECEIVING', error = NULL WHERE id = ? AND status = 'READY'",
+                (row["id"],),
+            ).rowcount
+            if updated != 1:
+                raise SessionBusyError(f"sampling session {row['id']} could not be claimed")
+            connection.commit()
+            return str(row["id"])
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     def set_status(self, session_id: str, status: str, error: str | None = None) -> None:
         with self._connect() as connection:

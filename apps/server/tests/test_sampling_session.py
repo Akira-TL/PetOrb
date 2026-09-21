@@ -257,3 +257,81 @@ def test_high_risk_label_recommends_veterinary_review_without_treatment_prescrip
     finally:
         server.shutdown()
         server.server_close()
+
+
+class SlowDetectorHandler(SessionDetectorHandler):
+    started = threading.Event()
+    release = threading.Event()
+
+    def do_POST(self) -> None:  # noqa: N802
+        if self.path != "/v1/detect":
+            self.send_error(404)
+            return
+        size = int(self.headers.get("Content-Length", "0"))
+        body = self.rfile.read(size)
+        marker = b'name="request_id"\r\n\r\n'
+        request_id = body.split(marker, 1)[1].split(b"\r\n", 1)[0].decode()
+        type(self).started.set()
+        type(self).release.wait(timeout=5)
+        payload = json.dumps(
+            {
+                "request_id": request_id,
+                "image": {"width": 1280, "height": 720},
+                "detections": [],
+                "model": {"name": "slow-detector", "version": "1"},
+                "latency_ms": 100,
+            }
+        ).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+
+def test_concurrent_ingest_can_claim_ready_session_only_once(tmp_path: Path) -> None:
+    server = start_handler(SlowDetectorHandler)
+    SlowDetectorHandler.started.clear()
+    SlowDetectorHandler.release.clear()
+    app = create_app(
+        Settings(
+            detector_url=f"http://127.0.0.1:{server.server_port}",
+            data_dir=tmp_path,
+            cors_origins=["http://localhost:3000"],
+        )
+    )
+    first_result: dict[str, object] = {}
+
+    def run_first_ingest() -> None:
+        with TestClient(app) as first_client:
+            response = first_client.post(
+                "/api/ingest",
+                files=[("images", ("first.jpg", JPEG_BYTES, "image/jpeg"))],
+            )
+            first_result["status"] = response.status_code
+            first_result["payload"] = response.json()
+
+    try:
+        with TestClient(app) as setup_client:
+            setup_client.post("/api/sessions", json={"animal_id": "A034"})
+
+        worker = threading.Thread(target=run_first_ingest, daemon=True)
+        worker.start()
+        assert SlowDetectorHandler.started.wait(timeout=5)
+
+        with TestClient(app) as second_client:
+            second = second_client.post(
+                "/api/ingest",
+                files=[("images", ("second.jpg", JPEG_BYTES, "image/jpeg"))],
+            )
+        assert second.status_code == 409
+        assert second.json()["detail"]["code"] == "SESSION_BUSY"
+
+        SlowDetectorHandler.release.set()
+        worker.join(timeout=5)
+        assert first_result["status"] == 200
+        assert first_result["payload"]["status"] == "COMPLETED"
+    finally:
+        SlowDetectorHandler.release.set()
+        server.shutdown()
+        server.server_close()
