@@ -60,7 +60,7 @@ Debug APK 输出到：
 apps/android-camera-bridge/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Bridge 默认面向 Android 29+，服务端地址可在 APK 状态页中修改；比赛 FastAPI 端口固定使用 `8010`。当前 #12 使用内置 JPEG 验证批次上传，GO 3S Preview Stream 在 #13 接入。
+Bridge 默认面向 Android 29+，服务端地址可在 APK 状态页中修改；比赛 FastAPI 端口固定使用 `8010`。Camera Bridge 已接入 GO 3S Preview Stream；真机参数仍需在现场完成 smoke 验证。
 
 ## Android Camera Bridge / GO 3S
 

@@ -17,9 +17,4 @@ class SamplingGate(
         nextCaptureAtMs = startMs + captured * intervalMs
         return true
     }
-
-    fun isComplete(nowMs: Long): Boolean =
-        captured >= maxFrames || nowMs >= startMs + durationMs
-
-    fun capturedCount(): Int = captured
 }

@@ -16,6 +16,5 @@ class SamplingGateTest {
         }
         assertFalse(gate.shouldCapture(5_999L))
         assertFalse(gate.shouldCapture(6_000L))
-        assertTrue(gate.isComplete(6_000L))
     }
 }

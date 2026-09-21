@@ -52,7 +52,6 @@ class Go3sCameraController(
     private var initialized = false
     private var bleCamera: CameraDevice? = null
     private var wifiCamera: CameraDevice? = null
-    private var cameraNetwork: Network? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var streamListener: CameraStreamListener? = null
     private var decoder: PreviewJpegDecoder? = null
@@ -73,7 +72,6 @@ class Go3sCameraController(
                 val wifiData = ble.system.fetchWifiData().getOrThrow()
                 onStatus("连接 GO 3S Wi‑Fi：${wifiData.ssid}")
                 val network = requestCameraWifi(wifiData.ssid, wifiData.pwd)
-                cameraNetwork = network
                 check(connectivityManager.bindProcessToNetwork(network)) { "cannot bind process to GO 3S Wi-Fi" }
 
                 val wifi = CameraDevice.get(ConnectType.WIFI)
@@ -318,7 +316,6 @@ class Go3sCameraController(
         val callback = networkCallback ?: return
         networkCallback = null
         runCatching { connectivityManager.unregisterNetworkCallback(callback) }
-        cameraNetwork = null
     }
 
     companion object {
