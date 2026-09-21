@@ -56,3 +56,4 @@ artifacts/
 # Android / Gradle local state
 .gradle/
 local.properties
+apps/android-camera-bridge/insta360.properties

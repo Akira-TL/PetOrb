@@ -17,6 +17,13 @@ class BatchStore(private val directory: File) {
         }
     }
 
+    fun appendJpeg(jpeg: ByteArray, timestampMs: Long): Boolean {
+        val existing = listFrames()
+        if (existing.size >= MAX_BATCH_SIZE) return false
+        File(directory, "frame-${existing.size.toString().padStart(2, '0')}-$timestampMs.jpg").writeBytes(jpeg)
+        return true
+    }
+
     fun listFrames(): List<File> =
         directory.listFiles { file -> file.isFile && file.extension.equals("jpg", ignoreCase = true) }
             ?.sortedBy { it.name }
