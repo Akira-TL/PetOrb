@@ -46,3 +46,6 @@ Thumbs.db
 # Local scratch / generated artifacts
 .scratch/
 artifacts/
+
+# Local third-party SDKs and machine-only project state
+.local/
