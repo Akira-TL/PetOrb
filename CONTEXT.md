@@ -14,3 +14,6 @@ PetOrb 在比赛 MVP 中优先实现的多动物照护模式。它面向救助�
 ## Camera Bridge
 
 PetOrb 比赛版中的极薄 Android 相机适配层。它只负责通过影石 Camera SDK 从 GO 3S 获取图像并将图像转发给 PetOrb 服务端，不承载 Rescue Mode 业务界面、AI 推理或结果展示。
+## 采样会话（Sampling Session）
+
+PetOrb 对一只动物的一次完整口腔采样与分析记录。比赛 MVP 同一时间只允许一个活动采样会话；Web 负责以 Animal ID 创建会话，Camera Bridge 上传的图像自动归入当前活动会话。
