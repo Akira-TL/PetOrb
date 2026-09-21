@@ -1,0 +1,48 @@
+# Akira / Agent local views
+.agents/skills/
+
+# CodeGraph local index
+.codegraph/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node / web
+node_modules/
+.next/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Logs & runtime
+logs/
+*.log
+*.pid
+.tmp/
+tmp/
+.cache/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local scratch / generated artifacts
+.scratch/
+artifacts/
