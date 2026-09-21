@@ -43,6 +43,9 @@ async def detect_image(
     except (ValueError, ValidationError) as exc:
         raise DetectorError(f"detector returned invalid response: {exc}") from exc
 
+    if detector_result.request_id != request_id:
+        raise DetectorError("detector returned mismatched request_id")
+
     return PetOrbDetectResult(
         image=detector_result.image,
         detections=[

@@ -37,8 +37,15 @@ class DetectorHandler(BaseHTTPRequestHandler):
         assert b'name="image"' in body
         assert b"image/jpeg" in body
         assert JPEG_BYTES in body
+        marker = b'name="request_id"\r\n\r\n'
+        request_id = None
+        if marker in body:
+            request_id = body.split(marker, 1)[1].split(b"\r\n", 1)[0].decode()
 
-        payload = json.dumps(type(self).response_body).encode()
+        response_body = dict(type(self).response_body)
+        if request_id is not None:
+            response_body["request_id"] = request_id
+        payload = json.dumps(response_body).encode()
         self.send_response(type(self).response_status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
@@ -172,6 +179,46 @@ def test_detector_http_error_is_visible() -> None:
         assert response.status_code == 502
         assert response.json()["detail"]["code"] == "DETECTOR_ERROR"
         assert "503" in response.json()["detail"]["message"]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_mismatched_detector_request_id_is_rejected() -> None:
+    class MismatchHandler(DetectorHandler):
+        def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+            if self.path != "/v1/detect":
+                self.send_error(404)
+                return
+            size = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(size)
+            payload = json.dumps(
+                {
+                    "request_id": "wrong-request-id",
+                    "image": {"width": 1280, "height": 720},
+                    "detections": [],
+                    "model": {"name": "test-detector", "version": "1"},
+                    "latency_ms": 4,
+                }
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), MismatchHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with make_client(f"http://127.0.0.1:{server.server_port}") as client:
+            response = client.post(
+                "/api/detect",
+                files={"image": ("oral.jpg", JPEG_BYTES, "image/jpeg")},
+            )
+        assert response.status_code == 502
+        assert response.json()["detail"]["code"] == "DETECTOR_ERROR"
+        assert "request_id" in response.json()["detail"]["message"]
     finally:
         server.shutdown()
         server.server_close()
