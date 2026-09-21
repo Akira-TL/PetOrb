@@ -46,3 +46,18 @@ corepack pnpm dev
 cd apps/server && uv run pytest
 cd apps/web && corepack pnpm lint && corepack pnpm build
 ```
+
+### 3. Android Camera Bridge
+
+```bash
+cd apps/android-camera-bridge
+./gradlew testDebugUnitTest assembleDebug
+```
+
+Debug APK 输出到：
+
+```text
+apps/android-camera-bridge/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Bridge 默认面向 Android 29+，服务端地址可在 APK 状态页中修改；比赛 FastAPI 端口固定使用 `8010`。当前 #12 使用内置 JPEG 验证批次上传，GO 3S Preview Stream 在 #13 接入。

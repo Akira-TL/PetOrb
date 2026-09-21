@@ -52,3 +52,7 @@ artifacts/
 
 # Local PetOrb runtime data
 .data/
+
+# Android / Gradle local state
+.gradle/
+local.properties
