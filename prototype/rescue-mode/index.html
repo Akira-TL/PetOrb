@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PetOrb Rescue Mode — Prototype</title>
+  <style>
+    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #17202a; background: #f4f6f8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #f4f6f8; }
+    button { font: inherit; }
+    .prototype-banner { position: fixed; top: 14px; right: 14px; z-index: 30; padding: 7px 10px; border-radius: 999px; background: #111827; color: white; font-size: 12px; letter-spacing: .04em; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+    .switcher { position: fixed; z-index: 40; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 8px; background: rgba(17,24,39,.96); color: white; border-radius: 999px; box-shadow: 0 12px 40px rgba(0,0,0,.2); }
+    .switcher button { width: 38px; height: 38px; border: 0; border-radius: 50%; cursor: pointer; background: #374151; color: white; }
+    .switcher .label { min-width: 220px; text-align: center; font-size: 13px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; }
+    .orb { width: 30px; height: 30px; border-radius: 50%; border: 7px solid #111827; background: white; }
+    .badge { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border-radius: 999px; background: #eef2f6; font-size: 12px; font-weight: 700; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .muted { color: #68717d; }
+    .danger { color: #a93226; }
+    .warn { color: #a56700; }
+    .good { color: #1e8449; }
+    .card { background: white; border: 1px solid #e5e9ef; border-radius: 18px; box-shadow: 0 4px 18px rgba(17,24,39,.04); }
+    .btn-primary { border: 0; background: #111827; color: white; padding: 12px 18px; border-radius: 12px; font-weight: 750; cursor: pointer; }
+    .btn-secondary { border: 1px solid #d7dce2; background: white; color: #17202a; padding: 10px 14px; border-radius: 12px; font-weight: 700; cursor: pointer; }
+    .risk { padding: 5px 8px; border-radius: 8px; font-size: 12px; font-weight: 800; }
+    .risk-high { background:#f9e8e5; color:#922b21; }
+    .risk-mid { background:#fff4db; color:#8a5a00; }
+    .risk-low { background:#eaf5ee; color:#216e3a; }
+
+    /* A */
+    .a-shell { display:grid; grid-template-columns: 230px minmax(0,1fr) 310px; min-height:100vh; }
+    .a-nav { background:#111827; color:white; padding:28px 20px; }
+    .a-nav .brand { margin-bottom:36px; }
+    .a-nav nav { display:grid; gap:9px; }
+    .a-nav nav div { padding:12px 13px; border-radius:11px; color:#c9d0d8; }
+    .a-nav nav .active { background:#202938; color:white; }
+    .a-main { padding:32px; }
+    .a-head { display:flex; justify-content:space-between; align-items:flex-start; gap:20px; margin-bottom:24px; }
+    .a-head h1 { margin:0 0 6px; font-size:30px; }
+    .stats { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:14px; margin-bottom:18px; }
+    .stat { padding:20px; }
+    .stat strong { display:block; font-size:28px; margin-bottom:4px; }
+    .session { padding:24px; }
+    .session-top { display:flex; justify-content:space-between; gap:20px; align-items:center; }
+    .progress { display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; margin:24px 0; }
+    .step { border-top:4px solid #d9dee5; padding-top:10px; font-size:12px; color:#7a8490; }
+    .step.done, .step.active { border-color:#111827; color:#111827; font-weight:800; }
+    .frames { display:grid; grid-template-columns:repeat(5, 1fr); gap:10px; }
+    .frame { aspect-ratio:4/3; border-radius:12px; background:linear-gradient(145deg,#2c3138,#8b949e); position:relative; overflow:hidden; }
+    .frame::after { content:"GO 3S"; position:absolute; left:8px; bottom:7px; color:white; font-size:10px; }
+    .a-right { padding:30px 18px 80px 0; }
+    .a-right .card { padding:18px; }
+    .queue-item { display:grid; grid-template-columns:42px 1fr auto; gap:10px; align-items:center; padding:12px 0; border-bottom:1px solid #edf0f3; }
+    .avatar { width:42px; height:42px; border-radius:14px; background:#e7ebef; display:grid; place-items:center; font-weight:900; }
+
+    /* B */
+    .b-shell { min-height:100vh; display:flex; flex-direction:column; background:white; }
+    .b-top { padding:24px 34px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eceff2; }
+    .b-main { flex:1; display:grid; place-items:center; padding:36px 24px 110px; }
+    .b-stage { width:min(960px, 94vw); }
+    .b-kicker { text-transform:uppercase; letter-spacing:.14em; font-size:12px; font-weight:900; color:#66717f; }
+    .b-stage h1 { font-size:48px; max-width:760px; margin:12px 0 16px; line-height:1.07; }
+    .b-stage p.lead { font-size:19px; max-width:710px; color:#626d79; line-height:1.65; }
+    .b-steps { display:grid; grid-template-columns:repeat(4, 1fr); gap:0; margin:34px 0 30px; }
+    .b-step { padding:14px 18px; border-bottom:3px solid #dfe3e8; font-size:13px; }
+    .b-step.active { border-color:#111827; font-weight:900; }
+    .b-panel { border:1px solid #e3e7ec; border-radius:24px; padding:28px; display:grid; grid-template-columns:1.2fr .8fr; gap:28px; background:#fafbfc; }
+    .b-result h2 { margin:0 0 10px; }
+    .finding { padding:14px 0; border-bottom:1px solid #e4e8ed; display:flex; justify-content:space-between; gap:18px; }
+    .evidence { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:16px; }
+    .evidence div { aspect-ratio:4/3; border-radius:13px; background:linear-gradient(145deg,#30353b,#a1a8b0); }
+    .b-summary { padding:22px; border-radius:18px; background:#111827; color:white; }
+    .b-summary strong { font-size:32px; display:block; margin:10px 0 4px; }
+
+    /* C */
+    .c-shell { min-height:100vh; padding:26px 30px 90px; }
+    .c-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+    .c-toolbar { display:flex; gap:10px; }
+    .c-grid { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:14px; }
+    .animal { padding:18px; min-height:190px; display:flex; flex-direction:column; justify-content:space-between; }
+    .animal-head { display:flex; justify-content:space-between; gap:8px; align-items:flex-start; }
+    .animal h3 { margin:0 0 4px; font-size:20px; }
+    .animal .thumb { height:82px; margin:15px 0; border-radius:14px; background:linear-gradient(140deg,#d9dee4,#f2f4f6); display:grid; place-items:center; font-size:12px; color:#707985; }
+    .animal.active { outline:3px solid #111827; }
+    .c-dock { position:fixed; left:30px; right:30px; bottom:75px; background:#111827; color:white; border-radius:18px; padding:14px 18px; display:flex; align-items:center; justify-content:space-between; gap:18px; box-shadow:0 15px 40px rgba(0,0,0,.18); }
+    .c-dock .left { display:flex; align-items:center; gap:14px; }
+
+    @media (max-width: 1000px) {
+      .a-shell { grid-template-columns: 190px 1fr; }
+      .a-right { display:none; }
+      .c-grid { grid-template-columns:repeat(2,1fr); }
+      .b-panel { grid-template-columns:1fr; }
+    }
+    @media (max-width: 720px) {
+      .a-shell { display:block; }
+      .a-nav { display:none; }
+      .a-main { padding:20px; }
+      .stats { grid-template-columns:1fr 1fr; }
+      .frames { grid-template-columns:repeat(2,1fr); }
+      .b-stage h1 { font-size:36px; }
+      .b-steps { grid-template-columns:1fr 1fr; }
+      .c-grid { grid-template-columns:1fr; }
+      .c-dock { left:14px; right:14px; }
+      .switcher .label { min-width:160px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="prototype-banner">PROTOTYPE · 非生产界面</div>
+  <main id="app"></main>
+  <div class="switcher" aria-label="Prototype variant switcher">
+    <button id="prev" aria-label="上一个方案">←</button>
+    <div class="label" id="variantLabel"></div>
+    <button id="next" aria-label="下一个方案">→</button>
+  </div>
+<script>
+  const variants = ['A','B','C'];
+  const names = { A:'救助工作台', B:'单线演示流程', C:'风险分诊墙' };
+  const params = new URLSearchParams(location.search);
+  let current = variants.includes(params.get('variant')) ? params.get('variant') : 'A';
+
+  const animals = [
+    ['A023','需复核','high'], ['A017','轻度关注','mid'], ['A031','未见明显异常','low'], ['A012','需复核','high'],
+    ['A008','等待采样','low'], ['A041','分析中','mid'], ['A029','未见明显异常','low'], ['A005','轻度关注','mid']
+  ];
+
+  function brand(dark=false){ return `<div class="brand"><span class="orb" style="${dark?'border-color:white;background:#111827':''}"></span><span>PetOrb</span></div>`; }
+  function risk(label,type){ return `<span class="risk risk-${type}">${label}</span>`; }
+
+  function variantA(){
+    return `<section class="a-shell">
+      <aside class="a-nav">${brand(true)}<nav><div class="active">今日工作台</div><div>动物档案</div><div>检查历史</div><div>设备状态</div></nav></aside>
+      <section class="a-main">
+        <div class="a-head"><div><div class="muted">Rescue Mode · 2026/09/21</div><h1>今天需要把注意力给谁？</h1><div class="muted">面向多动物场景的快速口腔风险初筛工作台</div></div><button class="btn-primary">+ 开始一次检查</button></div>
+        <div class="stats"><div class="card stat"><strong>12</strong><span class="muted">今日已检查</span></div><div class="card stat"><strong>3</strong><span class="muted">建议人工复核</span></div><div class="card stat"><strong>1</strong><span class="muted">正在分析</span></div></div>
+        <div class="card session"><div class="session-top"><div><span class="badge"><span class="dot good"></span> 当前采样会话</span><h2 style="margin:10px 0 2px">A023</h2><span class="muted">Camera Bridge 已上传 10 / 10 张 JPEG</span></div><div style="text-align:right">${risk('需复核','high')}<div class="muted" style="margin-top:8px">AI 分析完成</div></div></div>
+          <div class="progress"><div class="step done">1 建立会话</div><div class="step done">2 接收图像</div><div class="step done">3 AI 分析</div><div class="step active">4 人工复核</div></div>
+          <h3>证据帧</h3><div class="frames"><div class="frame"></div><div class="frame"></div><div class="frame"></div><div class="frame" style="opacity:.25"></div><div class="frame" style="opacity:.15"></div></div>
+        </div>
+      </section>
+      <aside class="a-right"><div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">优先复核</h3><span class="muted">按风险排序</span></div>
+        ${animals.slice(0,5).map(([id,l,t])=>`<div class="queue-item"><div class="avatar">${id.slice(-2)}</div><div><b>${id}</b><div class="muted" style="font-size:12px">09/21 · 口腔采样</div></div>${risk(l,t)}</div>`).join('')}
+      </div></aside>
+    </section>`;
+  }
+
+  function variantB(){
+    return `<section class="b-shell"><header class="b-top">${brand()}<div class="badge"><span class="dot good"></span> GO 3S Bridge 在线</div></header>
+      <section class="b-main"><div class="b-stage"><div class="b-kicker">Rescue Mode · Live Demo</div><h1>让动物主动完成采样，让照护者更早看到值得检查的个体。</h1><p class="lead">当前检查对象 <b>A023</b>。PetOrb 已收到 GO 3S 的 10 张口腔图像并完成分析。</p>
+        <div class="b-steps"><div class="b-step">01 选择动物</div><div class="b-step">02 等待采样</div><div class="b-step">03 AI 分析</div><div class="b-step active">04 查看结果</div></div>
+        <div class="b-panel"><div class="b-result"><div style="display:flex;justify-content:space-between"><div><h2>A023 · 本次检查</h2><span class="muted">采样质量：良好 · 3 张证据帧</span></div>${risk('建议复核','high')}</div>
+          <div class="finding"><span>疑似牙结石 / 明显沉积物</span><b>82%</b></div><div class="finding"><span>局部牙龈颜色异常</span><b>74%</b></div><div class="finding"><span>牙齿完整性</span><b>未见明显异常</b></div>
+          <div class="evidence"><div></div><div></div><div></div></div></div>
+          <aside class="b-summary"><div class="muted" style="color:#b9c0c8">建议下一步</div><strong>人工复核</strong><p style="line-height:1.6;color:#dfe4e8">建议由救助人员进一步检查该动物口腔，必要时联系兽医。</p><div style="font-size:12px;color:#9ea7b2;margin-top:28px">PetOrb 提供辅助风险观察，不构成医疗诊断。</div></aside>
+        </div>
+      </div></section></section>`;
+  }
+
+  function variantC(){
+    return `<section class="c-shell"><div class="c-top"><div>${brand()}<div class="muted" style="margin-top:5px">Rescue Mode · 风险分诊墙</div></div><div class="c-toolbar"><button class="btn-secondary">全部动物</button><button class="btn-primary">+ 新建检查</button></div></div>
+      <div class="c-grid">${animals.map(([id,l,t],i)=>`<article class="card animal ${i===0?'active':''}"><div class="animal-head"><div><h3>${id}</h3><span class="muted">今日 21:${String(18-i).padStart(2,'0')}</span></div>${risk(l,t)}</div><div class="thumb">证据帧预览</div><div class="muted">${t==='high'?'建议优先人工检查':t==='mid'?'建议持续关注':'暂无高风险提示'}</div></article>`).join('')}</div>
+      <div class="c-dock"><div class="left"><span class="badge" style="background:#202938;color:white"><span class="dot good"></span> 采样链路在线</span><div><b>A041 正在分析</b><div style="font-size:12px;color:#aeb6bf">10 张图像已接收 · AI 分析中</div></div></div><div style="font-size:13px;color:#c8ced6">今日 12 次检查 · 3 个建议复核</div></div>
+    </section>`;
+  }
+
+  function render(){
+    document.getElementById('app').innerHTML = current==='A'?variantA():current==='B'?variantB():variantC();
+    document.getElementById('variantLabel').textContent = `${current} — ${names[current]}`;
+    const p = new URLSearchParams(location.search); p.set('variant',current); history.replaceState(null,'',`${location.pathname}?${p}`);
+  }
+  function move(delta){ current = variants[(variants.indexOf(current)+delta+variants.length)%variants.length]; render(); }
+  document.getElementById('prev').onclick = ()=>move(-1);
+  document.getElementById('next').onclick = ()=>move(1);
+  document.addEventListener('keydown', e=>{ const t=e.target; if(['INPUT','TEXTAREA'].includes(t.tagName)||t.isContentEditable) return; if(e.key==='ArrowLeft') move(-1); if(e.key==='ArrowRight') move(1); });
+  render();
+</script>
+</body>
+</html>
