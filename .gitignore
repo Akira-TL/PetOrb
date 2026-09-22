@@ -57,3 +57,5 @@ artifacts/
 .gradle/
 local.properties
 apps/android-camera-bridge/insta360.properties
+
+demo.env
