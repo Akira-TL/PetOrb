@@ -16,7 +16,7 @@ fi
 : "${PETORB_WEB_PORT:=3000}"
 : "${PETORB_BRIDGE_SERVER_URL:=http://192.168.137.1:8010}"
 
-probe() {
+probe_http() {
   local name="$1"
   local url="$2"
   local expected="$3"
@@ -29,8 +29,18 @@ probe() {
   fi
 }
 
-probe "FastAPI" "http://127.0.0.1:${PETORB_API_PORT}/health" '^200$'
-probe "Web" "http://127.0.0.1:${PETORB_WEB_PORT}/" '^200$'
-# Detector contract does not define a health endpoint; any HTTP response proves the process is reachable.
-probe "Detector" "${PETORB_DETECTOR_URL%/}/v1/detect" '^[1-5][0-9][0-9]$'
+probe_detector() {
+  local url="${PETORB_DETECTOR_URL%/}/health"
+  local body
+  body=$(curl -fsS --max-time 5 "$url" 2>/dev/null || true)
+  if [[ "$body" == *'"status":"ok"'* || "$body" == *'"status": "ok"'* ]]; then
+    printf 'OK    %-12s %s\n' "Detector" "$url"
+  else
+    printf 'DOWN  %-12s %s\n' "Detector" "$url"
+  fi
+}
+
+probe_http "FastAPI" "http://127.0.0.1:${PETORB_API_PORT}/health" '^200$'
+probe_http "Web" "http://127.0.0.1:${PETORB_WEB_PORT}/" '^200$'
+probe_detector
 printf 'INFO  %-12s %s\n' "Bridge URL" "$PETORB_BRIDGE_SERVER_URL"

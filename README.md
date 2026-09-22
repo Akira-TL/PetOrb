@@ -34,7 +34,7 @@ Content-Type: multipart/form-data
 PetOrb 每次 POST 一张 JPEG，Detector 返回原图坐标系下的：
 
 ```text
-label + confidence + 4 points
+label + confidence + OBB bbox (x1,y1 ... x4,y4)
 ```
 
 风险判断、证据帧选择和就医建议由 PetOrb 服务端负责。
@@ -52,17 +52,19 @@ cp demo.env.example demo.env
 ```text
 FastAPI:       0.0.0.0:8010
 Web:           0.0.0.0:3000
-Detector:      http://127.0.0.1:9000
+Detector:      由 demo.env 的 PETORB_DETECTOR_URL 配置
 Android 上传:  http://192.168.137.1:8010
 ```
 
 如果 Detector 在队友电脑或其他服务地址，只改：
 
 ```bash
-PETORB_DETECTOR_URL=http://<detector-ip>:<port>
+PETORB_DETECTOR_URL=https://<当前-detector-tunnel>
 ```
 
 Android Camera Bridge 的 FastAPI 地址可直接在 APK 状态页修改，因此现场热点网关不是 `192.168.137.1` 时不需要重新编译 APK。
+
+Detector 健康检查使用 `GET /health`；只有返回 `status: ok` 才继续传图。Detector HTTP timeout 当前按真实接口设为 60 秒。
 
 ## 3. 一键构建
 
@@ -171,7 +173,7 @@ FAILED
 
 ```text
 证据帧
-+ 四点 polygon
++ OBB 四点 polygon
 + label
 + confidence
 ```
@@ -281,7 +283,7 @@ apps/android-camera-bridge/app/build/outputs/apk/debug/app-debug.apk
 7. 手机回到比赛电脑热点；
 8. Web 创建一次 Sampling Session；
 9. Bridge 确认 FastAPI 地址并点击“上传 / 重试”；
-10. Web 等待 `COMPLETED`，查看四点目标区域、风险判断和就医建议。
+10. Web 等待 `COMPLETED`，查看 OBB 四点目标区域、风险判断和就医建议。
 
 ## 8. 开发结构
 

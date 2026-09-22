@@ -2,12 +2,17 @@
 
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 
-type DetectionPoint = { x: number; y: number };
+type OrientedBBox = {
+  x1: number; y1: number;
+  x2: number; y2: number;
+  x3: number; y3: number;
+  x4: number; y4: number;
+};
 type Detection = {
   label: string;
   display_label: string;
   confidence: number;
-  points: [DetectionPoint, DetectionPoint, DetectionPoint, DetectionPoint];
+  bbox: OrientedBBox;
 };
 type EvidenceFrame = {
   id: string;
@@ -275,9 +280,15 @@ export default function DetectionWorkbench() {
                   aria-label="四点检测区域覆盖层"
                 >
                   {media.detections.map((detection, index) => {
-                    const polygonPoints = detection.points.map((point) => `${point.x},${point.y}`).join(" ");
-                    const labelX = Math.min(...detection.points.map((point) => point.x));
-                    const labelY = Math.min(...detection.points.map((point) => point.y));
+                    const corners = [
+                      [detection.bbox.x1, detection.bbox.y1],
+                      [detection.bbox.x2, detection.bbox.y2],
+                      [detection.bbox.x3, detection.bbox.y3],
+                      [detection.bbox.x4, detection.bbox.y4],
+                    ] as const;
+                    const polygonPoints = corners.map(([x, y]) => `${x},${y}`).join(" ");
+                    const labelX = Math.min(...corners.map(([x]) => x));
+                    const labelY = Math.min(...corners.map(([, y]) => y));
                     return (
                       <g key={`${detection.label}-${index}`}>
                         <polygon

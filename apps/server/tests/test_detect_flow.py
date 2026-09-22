@@ -19,9 +19,9 @@ class DetectorHandler(BaseHTTPRequestHandler):
         "image": {"width": 1280, "height": 720},
         "detections": [
             {
-                "label": "tartar_suspected",
+                "label": "sarro",
                 "confidence": 0.87,
-                "points": [{"x": 412, "y": 203}, {"x": 690, "y": 210}, {"x": 682, "y": 461}, {"x": 405, "y": 450}],
+                "bbox": {"x1": 412, "y1": 203, "x2": 690, "y2": 210, "x3": 682, "y3": 461, "x4": 405, "y4": 450},
             }
         ],
         "model": {"name": "test-detector", "version": "1"},
@@ -77,9 +77,9 @@ def test_jpeg_flows_through_real_detector_http_boundary() -> None:
             "image": {"width": 1280, "height": 720},
             "detections": [
                 {
-                    "label": "tartar_suspected",
+                    "label": "sarro",
                     "confidence": 0.87,
-                    "points": [{"x": 412, "y": 203}, {"x": 690, "y": 210}, {"x": 682, "y": 461}, {"x": 405, "y": 450}],
+                    "bbox": {"x1": 412, "y1": 203, "x2": 690, "y2": 210, "x3": 682, "y3": 461, "x4": 405, "y4": 450},
                 }
             ],
             "model": {"name": "test-detector", "version": "1"},
@@ -98,10 +98,10 @@ def test_jpeg_flows_through_real_detector_http_boundary() -> None:
             "image": {"width": 1280, "height": 720},
             "detections": [
                 {
-                    "label": "tartar_suspected",
-                    "display_label": "疑似牙结石",
+                    "label": "sarro",
+                    "display_label": "牙结石",
                     "confidence": 0.87,
-                    "points": [{"x": 412, "y": 203}, {"x": 690, "y": 210}, {"x": 682, "y": 461}, {"x": 405, "y": 450}],
+                    "bbox": {"x1": 412, "y1": 203, "x2": 690, "y2": 210, "x3": 682, "y3": 461, "x4": 405, "y4": 450},
                 }
             ],
         }
@@ -134,18 +134,18 @@ def test_empty_detections_are_a_successful_result() -> None:
         server.server_close()
 
 
-def test_invalid_detector_points_fail_without_fake_result() -> None:
+def test_invalid_detector_obb_fails_without_fake_result() -> None:
     server = detector_server()
     try:
         DetectorHandler.response_status = 200
         DetectorHandler.response_body = {
-            "request_id": "detector-bad-points",
+            "request_id": "detector-bad-obb",
             "image": {"width": 1280, "height": 720},
             "detections": [
                 {
-                    "label": "tartar_suspected",
+                    "label": "sarro",
                     "confidence": 0.9,
-                    "points": [{"x": 20, "y": 20}, {"x": 1500, "y": 20}, {"x": 1490, "y": 300}, {"x": 25, "y": 290}],
+                    "bbox": {"x1": 20, "y1": 20, "x2": 1500, "y2": 20, "x3": 1490, "y3": 300, "x4": 25, "y4": 290},
                 }
             ],
             "model": {"name": "test-detector", "version": "1"},
@@ -158,7 +158,7 @@ def test_invalid_detector_points_fail_without_fake_result() -> None:
             )
         assert response.status_code == 502
         assert response.json()["detail"]["code"] == "DETECTOR_ERROR"
-        assert "point" in response.json()["detail"]["message"]
+        assert "bbox" in response.json()["detail"]["message"]
     finally:
         server.shutdown()
         server.server_close()

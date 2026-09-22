@@ -1,214 +1,190 @@
-# PetOrb 外部检测模型 HTTP 接口协议
+# PetOrb 外部口腔检测 API
 
-版本：v1.1（当前）
+版本：按 2026-09-22 团队真实 Detector 接口对齐。
 
-> 当前协议使用**每个目标四个角点**表达检测区域。旧 `bbox: {x1,y1,x2,y2}` 已废弃，不再兼容。
+## 当前服务
 
-## 1. 目的
+模型运行在另一台电脑。PetOrb 只提交 JPEG 并接收 JSON，不接收返回图片，也不从 Detector 接收诊断文字。
 
-PetOrb 通过 HTTP 向团队外部图像检测服务提交**单张 JPEG**。检测服务只负责返回目标类别、置信度和目标区域的四个原图像素坐标点；风险聚合、就医建议、Web 展示与数据持久化全部由 PetOrb 服务端负责。
+当前服务地址属于临时 Cloudflare tunnel，不写死在 Git；比赛电脑通过 `demo.env` 的 `PETORB_DETECTOR_URL` 配置。
 
-## 2. Endpoint
+无 API key。
+
+## 健康检查
+
+```http
+GET /health
+```
+
+正常返回形状：
+
+```json
+{
+  "status": "ok",
+  "model": "petorb-oral-detector",
+  "version": "yolo11m-obb-2026-09-18"
+}
+```
+
+`status != "ok"` 时不要发检测请求。
+
+## 检测请求
 
 ```http
 POST /v1/detect
 Content-Type: multipart/form-data
 ```
 
-### Form 字段
+表单：
 
-| 字段 | 类型 | 必填 | 说明 |
-| --- | --- | --- | --- |
-| `image` | file | 是 | 单张 JPEG，`image/jpeg` |
-| `request_id` | string | 否 | PetOrb 生成的请求 ID；若提供，响应必须原样返回 |
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `image` | 是 | 原始 JPEG 文件，不要先改成 PNG，也不要先画框 |
+| `request_id` | 否 | 任意字符串；传入时响应会原样返回 |
 
-约定：
+限制：
 
-- 单文件不超过 5 MB；
 - 只接受 JPEG；
-- 一次请求只处理一张图；
-- 不接受视频或 ZIP。
+- 单张不超过 5 MB；
+- 一次只传一张；
+- PetOrb timeout 使用 60 秒。
 
-## 3. 成功响应
+## 成功响应
 
-HTTP `200 OK`
+HTTP `200 OK`：
 
 ```json
 {
-  "request_id": "9e25b6d3-8ce9-43d3-b8bf-0ea845d93f7b",
+  "request_id": "01_open_mouth",
   "image": {
-    "width": 1280,
-    "height": 720
+    "width": 1920,
+    "height": 1080
   },
   "detections": [
     {
-      "label": "tartar_suspected",
-      "confidence": 0.87,
-      "points": [
-        {"x": 412, "y": 203},
-        {"x": 690, "y": 210},
-        {"x": 682, "y": 461},
-        {"x": 405, "y": 450}
-      ]
-    },
-    {
-      "label": "gingiva_redness",
-      "confidence": 0.78,
-      "points": [
-        {"x": 705, "y": 250},
-        {"x": 1012, "y": 262},
-        {"x": 998, "y": 486},
-        {"x": 696, "y": 472}
-      ]
+      "label": "gingi",
+      "confidence": 0.8432,
+      "bbox": {
+        "x1": 1402,
+        "y1": 175,
+        "x2": 1369,
+        "y2": 0,
+        "x3": 1115,
+        "y3": 29,
+        "x4": 1148,
+        "y4": 219
+      }
     }
   ],
   "model": {
     "name": "petorb-oral-detector",
-    "version": "2026-09-22"
+    "version": "yolo11m-obb-2026-09-18"
   },
-  "latency_ms": 184
+  "latency_ms": 29
 }
 ```
 
-## 4. 四点坐标约定
+## `bbox`：OBB 四角，不是轴对齐矩形
 
-每个 detection 的 `points`：
-
-- **必须恰好 4 个点**；
-- 每个点格式为 `{"x": int, "y": int}`；
-- 坐标基于**服务实际收到的原始 JPEG 像素坐标系**；
-- 左上角为 `(0, 0)`；
-- `x` 向右增大，`y` 向下增大；
-- 四点沿目标边界**顺时针排列**；
-- 起点任意，不要求第一个点一定是左上角；
-- 四个点必须互不重复；
-- 所有点必须满足：
-  - `0 <= x <= image.width`
-  - `0 <= y <= image.height`
-
-例如一个倾斜目标：
-
-```json
-"points": [
-  {"x": 412, "y": 203},
-  {"x": 690, "y": 210},
-  {"x": 682, "y": 461},
-  {"x": 405, "y": 450}
-]
-```
-
-Detector 内部可以 resize、letterbox、crop 或透视变换，但**返回前必须把四点映射回上传 JPEG 的原始尺寸**。PetOrb Web 会直接按这四个点绘制 SVG polygon。
-
-## 5. 字段约定
-
-### `label`
-
-- 类型：string；
-- 使用稳定的 `snake_case`；
-- 不要把中文展示文案作为机器字段；
-- 类别集合由模型团队维护，联调后不要随意改名。
-
-示例：
+虽然字段名叫 `bbox`，其内容实际是旋转框（OBB）的四个角：
 
 ```text
-tartar_suspected
-gingiva_redness
-tooth_missing
-oral_valid
+(x1, y1)
+(x2, y2)
+(x3, y3)
+(x4, y4)
 ```
 
-### `confidence`
+约定：
 
-- 类型：number；
-- 范围：`0.0 ~ 1.0`；
-- 不要返回百分数 `87`；
-- 不要返回字符串 `"87%"`。
+- 坐标单位是原始 JPEG 像素；
+- 原点是左上角 `(0,0)`；
+- `x` 范围 `0..image.width`；
+- `y` 范围 `0..image.height`；
+- 四点按框的角顺序返回；
+- 不保证第一个点是左上角；
+- Web 必须按 `1 → 2 → 3 → 4 → 1` 连接成四边形；
+- **禁止把它收成横平竖直矩形。**
 
-### `points`
+PetOrb Server 保留这 8 个值，Web 再转换为 SVG polygon。
 
-- 类型：array；
-- 长度固定为 `4`；
-- 每个元素必须含整数 `x`、`y`；
-- 不再接受 `bbox`。
+## label
 
-### `detections`
+真实模型当前只有两个 label：
 
-没有目标时仍然返回 `200 OK`：
+| label | 含义 | PetOrb 展示 |
+| --- | --- | --- |
+| `gingi` | 牙龈炎 / 红龈 | 牙龈炎 / 红龈 |
+| `sarro` | 牙结石 | 牙结石 |
+
+PetOrb 当前产品级风险映射：
+
+- `gingi` → `veterinary_review_recommended`
+- `sarro` → `attention_recommended`
+
+这是 PetOrb 的产品分诊逻辑，不是 Detector 返回的医疗诊断。
+
+## confidence
+
+范围固定 `0.0 .. 1.0`。
+
+正确：
+
+```json
+"confidence": 0.8432
+```
+
+不使用 `84` 或 `"84%"`。
+
+## 无检测目标
+
+无目标仍然是成功：
 
 ```json
 {
-  "request_id": "...",
-  "image": {
-    "width": 1280,
-    "height": 720
-  },
-  "detections": [],
-  "model": {
-    "name": "petorb-oral-detector",
-    "version": "2026-09-22"
-  },
-  "latency_ms": 153
+  "detections": []
 }
 ```
 
-`detections: []` 表示“本图没有检测到目标”，不是接口错误。
+PetOrb 不把空数组当接口错误。
 
-## 6. 错误响应
+## 错误
 
-所有错误使用统一结构：
+已知 HTTP 语义：
 
-```json
-{
-  "error": {
-    "code": "INVALID_IMAGE",
-    "message": "image cannot be decoded"
-  }
-}
+| HTTP | code / 含义 |
+| ---: | --- |
+| 400 | `INVALID_IMAGE` |
+| 413 | `IMAGE_TOO_LARGE` |
+| 415 | `UNSUPPORTED_MEDIA_TYPE` |
+| 404 | 路径错误；检测必须 POST `/v1/detect` |
+| 503 | `MODEL_NOT_READY` |
+
+## 时延
+
+模型本身通常是几十毫秒；Cloudflare tunnel 的网络等待可能明显更长。因此 PetOrb 将 Detector HTTP timeout 设置为 60 秒，并单独保留 Detector 返回的 `latency_ms` 作为模型推理时间参考。
+
+## PetOrb 职责边界
+
+Detector 负责：
+
+```text
+JPEG
+→ detections[]
+→ label
+→ confidence
+→ OBB bbox 四角
 ```
 
-推荐状态码：
+PetOrb 负责：
 
-| HTTP | `error.code` | 场景 |
-| ---: | --- | --- |
-| 400 | `INVALID_IMAGE` | 文件为空、图片损坏、无法解码 |
-| 413 | `IMAGE_TOO_LARGE` | 超过约定大小 |
-| 415 | `UNSUPPORTED_MEDIA_TYPE` | 不是 JPEG |
-| 500 | `INFERENCE_ERROR` | 模型推理内部错误 |
-| 503 | `MODEL_NOT_READY` | 模型尚未加载完成 |
-
-PetOrb 不要求模型服务提供 Mock 或假结果；接口异常会被真实记录为 PetOrb 会话失败。
-
-## 7. PetOrb 与模型服务职责边界
-
-### 模型服务负责
-
-- 接收 JPEG；
-- 执行检测；
-- 返回原图尺寸；
-- 每个目标返回四个原图坐标点；
-- 返回稳定类别；
-- 返回置信度。
-
-### PetOrb 负责
-
-- Camera Bridge 取图；
-- 发送请求；
-- 多张图片结果聚合；
-- 四点目标区域绘制；
-- 证据帧选择；
-- 风险等级与总体判断；
-- 是否建议进一步人工检查/就医；
-- 非诊断性护理提示；
-- 会话状态与数据保存。
-
-## 8. 联调最小验收
-
-模型服务交给 PetOrb 前，只需要满足：
-
-1. 正常 JPEG → `200`，至少一个 detection，且每个 detection 恰好 4 个合法点；
-2. 无目标 JPEG → `200` + `detections: []`；
-3. 损坏图片 → `400 INVALID_IMAGE`；
-4. 四个点按原图坐标绘制后与目标区域一致；
-5. 内部 resize / letterbox 后返回坐标仍已映射回原图。
-
-做到以上即可开始正式联调。
+```text
+Camera Bridge
+→ JPEG 批次
+→ 单张调用 Detector
+→ 多帧聚合
+→ 证据帧
+→ OBB polygon 绘制
+→ 风险等级
+→ 是否建议人工检查 / 就医
+```

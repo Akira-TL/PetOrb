@@ -14,7 +14,7 @@ JPEG_BYTES = b"\xff\xd8\xff\xe0" + b"petorb-session-jpeg" + b"\xff\xd9"
 
 
 class SessionDetectorHandler(BaseHTTPRequestHandler):
-    label = "tartar_suspected"
+    label = "sarro"
     confidence = 0.86
     status = 200
     call_count = 0
@@ -40,7 +40,7 @@ class SessionDetectorHandler(BaseHTTPRequestHandler):
                         {
                             "label": type(self).label,
                             "confidence": type(self).confidence,
-                            "points": [{"x": 100, "y": 120}, {"x": 500, "y": 125}, {"x": 490, "y": 420}, {"x": 105, "y": 410}],
+                            "bbox": {"x1": 100, "y1": 120, "x2": 500, "y2": 125, "x3": 490, "y3": 420, "x4": 105, "y4": 410},
                         }
                     ],
                     "model": {"name": "session-detector", "version": "1"},
@@ -80,7 +80,7 @@ def test_batch_of_ten_becomes_three_persisted_evidence_frames(tmp_path: Path) ->
     server = start_detector()
     try:
         SessionDetectorHandler.status = 200
-        SessionDetectorHandler.label = "tartar_suspected"
+        SessionDetectorHandler.label = "sarro"
         SessionDetectorHandler.confidence = 0.86
         SessionDetectorHandler.call_count = 0
         with make_client(f"http://127.0.0.1:{server.server_port}", tmp_path) as client:
@@ -240,7 +240,7 @@ def test_high_risk_label_recommends_veterinary_review_without_treatment_prescrip
     server = start_detector()
     try:
         SessionDetectorHandler.status = 200
-        SessionDetectorHandler.label = "gingiva_redness"
+        SessionDetectorHandler.label = "gingi"
         SessionDetectorHandler.confidence = 0.82
         with make_client(f"http://127.0.0.1:{server.server_port}", tmp_path) as client:
             client.post("/api/sessions", json={"animal_id": "A033"})
