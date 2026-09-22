@@ -40,7 +40,7 @@ class SessionDetectorHandler(BaseHTTPRequestHandler):
                         {
                             "label": type(self).label,
                             "confidence": type(self).confidence,
-                            "bbox": {"x1": 100, "y1": 120, "x2": 500, "y2": 420},
+                            "points": [{"x": 100, "y": 120}, {"x": 500, "y": 125}, {"x": 490, "y": 420}, {"x": 105, "y": 410}],
                         }
                     ],
                     "model": {"name": "session-detector", "version": "1"},

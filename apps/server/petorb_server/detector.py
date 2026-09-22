@@ -53,7 +53,7 @@ async def detect_image(
                 label=detection.label,
                 display_label=LABEL_DISPLAY_NAMES.get(detection.label, detection.label),
                 confidence=detection.confidence,
-                bbox=detection.bbox,
+                points=detection.points,
             )
             for detection in detector_result.detections
         ],

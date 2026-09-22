@@ -34,7 +34,7 @@ Content-Type: multipart/form-data
 PetOrb 每次 POST 一张 JPEG，Detector 返回原图坐标系下的：
 
 ```text
-label + confidence + bbox
+label + confidence + 4 points
 ```
 
 风险判断、证据帧选择和就医建议由 PetOrb 服务端负责。
@@ -171,7 +171,7 @@ FAILED
 
 ```text
 证据帧
-+ bbox
++ 四点 polygon
 + label
 + confidence
 ```
@@ -281,7 +281,7 @@ apps/android-camera-bridge/app/build/outputs/apk/debug/app-debug.apk
 7. 手机回到比赛电脑热点；
 8. Web 创建一次 Sampling Session；
 9. Bridge 确认 FastAPI 地址并点击“上传 / 重试”；
-10. Web 等待 `COMPLETED`，查看 bbox、风险判断和就医建议。
+10. Web 等待 `COMPLETED`，查看四点目标区域、风险判断和就医建议。
 
 ## 8. 开发结构
 

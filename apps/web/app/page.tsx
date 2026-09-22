@@ -2,12 +2,12 @@
 
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 
-type BBox = { x1: number; y1: number; x2: number; y2: number };
+type DetectionPoint = { x: number; y: number };
 type Detection = {
   label: string;
   display_label: string;
   confidence: number;
-  bbox: BBox;
+  points: [DetectionPoint, DetectionPoint, DetectionPoint, DetectionPoint];
 };
 type EvidenceFrame = {
   id: string;
@@ -272,31 +272,32 @@ export default function DetectionWorkbench() {
                   className="pointer-events-none absolute inset-0 h-full w-full"
                   viewBox={`0 0 ${media.width} ${media.height}`}
                   preserveAspectRatio="xMidYMid meet"
-                  aria-label="检测框覆盖层"
+                  aria-label="四点检测区域覆盖层"
                 >
                   {media.detections.map((detection, index) => {
-                    const { x1, y1, x2, y2 } = detection.bbox;
+                    const polygonPoints = detection.points.map((point) => `${point.x},${point.y}`).join(" ");
+                    const labelX = Math.min(...detection.points.map((point) => point.x));
+                    const labelY = Math.min(...detection.points.map((point) => point.y));
                     return (
                       <g key={`${detection.label}-${index}`}>
-                        <rect
-                          x={x1}
-                          y={y1}
-                          width={x2 - x1}
-                          height={y2 - y1}
-                          fill="none"
+                        <polygon
+                          points={polygonPoints}
+                          fill="#fb7185"
+                          fillOpacity="0.12"
                           stroke="#fb7185"
                           strokeWidth={Math.max(2, media.width / 320)}
+                          strokeLinejoin="round"
                           vectorEffect="non-scaling-stroke"
                         />
                         <rect
-                          x={x1}
-                          y={Math.max(0, y1 - 30)}
-                          width={Math.min(x2 - x1, 260)}
+                          x={labelX}
+                          y={Math.max(0, labelY - 30)}
+                          width="260"
                           height="30"
                           fill="#0f172a"
                           fillOpacity="0.92"
                         />
-                        <text x={x1 + 8} y={Math.max(20, y1 - 9)} fill="white" fontSize="16" fontWeight="700">
+                        <text x={labelX + 8} y={Math.max(20, labelY - 9)} fill="white" fontSize="16" fontWeight="700">
                           {`${detection.display_label} ${(detection.confidence * 100).toFixed(0)}%`}
                         </text>
                       </g>
