@@ -14,7 +14,6 @@ fi
 : "${PETORB_DETECTOR_URL:=http://127.0.0.1:9000}"
 : "${PETORB_API_PORT:=8010}"
 : "${PETORB_WEB_PORT:=3000}"
-: "${PETORB_BRIDGE_SERVER_URL:=http://192.168.137.1:8010}"
 
 probe_http() {
   local name="$1"
@@ -42,5 +41,5 @@ probe_detector() {
 
 probe_http "FastAPI" "http://127.0.0.1:${PETORB_API_PORT}/health" '^200$'
 probe_http "Web" "http://127.0.0.1:${PETORB_WEB_PORT}/" '^200$'
+probe_http "Stream API" "http://127.0.0.1:${PETORB_API_PORT}/api/stream/status" '^200$'
 probe_detector
-printf 'INFO  %-12s %s\n' "Bridge URL" "$PETORB_BRIDGE_SERVER_URL"

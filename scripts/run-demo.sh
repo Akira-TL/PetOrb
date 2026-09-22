@@ -21,10 +21,19 @@ fi
 : "${PETORB_WEB_HOST:=0.0.0.0}"
 : "${PETORB_WEB_PORT:=3000}"
 : "${NEXT_PUBLIC_API_URL:=http://127.0.0.1:8010}"
-: "${PETORB_BRIDGE_SERVER_URL:=http://192.168.137.1:8010}"
+: "${PETORB_FFMPEG_BIN:=ffmpeg}"
+: "${PETORB_STREAM_DISPLAY_FPS:=30}"
+: "${PETORB_STREAM_INFERENCE_FPS:=10}"
+: "${PETORB_STREAM_JPEG_QUALITY:=5}"
+: "${PETORB_CAMERA_SOURCE_WS:=ws://127.0.0.1:8010/ws/camera/source}"
 : "${PETORB_DATA_DIR:=$ROOT/.data/demo}"
 
 mkdir -p "$RUNTIME_DIR" "$LOG_DIR" "$PETORB_DATA_DIR"
+
+if ! command -v "$PETORB_FFMPEG_BIN" >/dev/null 2>&1; then
+  echo "[PetOrb] FFmpeg not found: $PETORB_FFMPEG_BIN" >&2
+  exit 1
+fi
 
 port_in_use() {
   local port="$1"
@@ -72,6 +81,10 @@ trap cleanup EXIT INT TERM
   PETORB_DETECTOR_URL="$PETORB_DETECTOR_URL" \
   PETORB_DETECTOR_TIMEOUT_SECONDS="$PETORB_DETECTOR_TIMEOUT_SECONDS" \
   PETORB_DATA_DIR="$PETORB_DATA_DIR" \
+  PETORB_FFMPEG_BIN="$PETORB_FFMPEG_BIN" \
+  PETORB_STREAM_DISPLAY_FPS="$PETORB_STREAM_DISPLAY_FPS" \
+  PETORB_STREAM_INFERENCE_FPS="$PETORB_STREAM_INFERENCE_FPS" \
+  PETORB_STREAM_JPEG_QUALITY="$PETORB_STREAM_JPEG_QUALITY" \
   PETORB_CORS_ORIGINS="[\"http://127.0.0.1:${PETORB_WEB_PORT}\",\"http://localhost:${PETORB_WEB_PORT}\"]" \
   uv run uvicorn petorb_server.main:app \
     --host "$PETORB_API_HOST" \
@@ -93,7 +106,7 @@ cat <<OUT
 [PetOrb] demo services started
   Web:             http://127.0.0.1:${PETORB_WEB_PORT}
   FastAPI:         http://127.0.0.1:${PETORB_API_PORT}
-  Android Bridge:  ${PETORB_BRIDGE_SERVER_URL}
+  Camera source WS: ${PETORB_CAMERA_SOURCE_WS}
   Detector:        ${PETORB_DETECTOR_URL}
   Data:            ${PETORB_DATA_DIR}
   Logs:            ${LOG_DIR}

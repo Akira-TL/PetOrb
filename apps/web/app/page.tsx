@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type OrientedBBox = {
   x1: number; y1: number;
@@ -8,205 +8,196 @@ type OrientedBBox = {
   x3: number; y3: number;
   x4: number; y4: number;
 };
+
 type Detection = {
-  label: string;
+  label: "gingi" | "sarro";
   display_label: string;
   confidence: number;
   bbox: OrientedBBox;
 };
-type EvidenceFrame = {
-  id: string;
-  url: string;
-  image: { width: number; height: number };
+
+type InferenceMessage = {
+  type: "inference";
+  frame_id: number;
+  risk_level: string;
+  overall_judgment: string;
+  recommendation: string;
   detections: Detection[];
 };
-type SessionFinding = {
-  label: string;
-  display_label: string;
-  confidence: number;
-  evidence_frame_id: string;
-};
-type SessionStatus = "READY" | "RECEIVING" | "ANALYZING" | "COMPLETED" | "FAILED";
-type SamplingSession = {
-  id: string;
-  animal_id: string | null;
-  status: SessionStatus;
-  sample_quality: string | null;
-  risk_level: string | null;
-  overall_judgment: string | null;
-  recommendation: string | null;
-  findings: SessionFinding[];
-  evidence_frames: EvidenceFrame[];
-  error: string | null;
-  created_at: string;
+
+type StreamStatusMessage = {
+  type: "stream_status";
+  status: string;
+  camera_connected?: boolean;
+  frame_id?: number;
+  codec?: string | null;
+  width?: number | null;
+  height?: number | null;
+  source_fps?: number | null;
+  display_fps?: number;
+  inference_fps?: number;
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8010";
-const ACTIVE_STATES: SessionStatus[] = ["READY", "RECEIVING", "ANALYZING"];
-
-const STATUS_LABEL: Record<SessionStatus, string> = {
-  READY: "等待采样",
-  RECEIVING: "接收图像",
-  ANALYZING: "分析中",
-  COMPLETED: "分析完成",
-  FAILED: "检测失败",
-};
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8010";
+const VIEW_WS_URL = `${API_URL.replace(/^http/, "ws")}/ws/camera/view`;
 
 const RISK_META: Record<string, { label: string; className: string }> = {
   no_obvious_abnormality: {
     label: "暂未发现明显异常",
-    className: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
   },
   attention_recommended: {
     label: "建议进一步关注",
-    className: "bg-amber-50 text-amber-800 border-amber-200",
+    className: "border-amber-200 bg-amber-50 text-amber-800",
   },
   veterinary_review_recommended: {
     label: "建议进一步就医评估",
-    className: "bg-rose-50 text-rose-800 border-rose-200",
+    className: "border-rose-200 bg-rose-50 text-rose-800",
   },
 };
 
-async function parseApiError(response: Response): Promise<string> {
-  try {
-    const payload = await response.json();
-    return payload?.detail?.message ?? payload?.detail ?? `HTTP ${response.status}`;
-  } catch {
-    return `HTTP ${response.status}`;
+function drawDetections(ctx: CanvasRenderingContext2D, detections: Detection[]) {
+  for (const detection of detections) {
+    const corners = [
+      [detection.bbox.x1, detection.bbox.y1],
+      [detection.bbox.x2, detection.bbox.y2],
+      [detection.bbox.x3, detection.bbox.y3],
+      [detection.bbox.x4, detection.bbox.y4],
+    ] as const;
+    const labelX = Math.min(...corners.map(([x]) => x));
+    const labelY = Math.min(...corners.map(([, y]) => y));
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(corners[0][0], corners[0][1]);
+    corners.slice(1).forEach(([x, y]) => ctx.lineTo(x, y));
+    ctx.closePath();
+    ctx.fillStyle = "rgba(251, 113, 133, 0.14)";
+    ctx.strokeStyle = "rgb(251, 113, 133)";
+    ctx.lineWidth = Math.max(2, ctx.canvas.width / 320);
+    ctx.lineJoin = "round";
+    ctx.fill();
+    ctx.stroke();
+
+    const label = `${detection.display_label} ${(detection.confidence * 100).toFixed(0)}%`;
+    ctx.font = `700 ${Math.max(14, ctx.canvas.width / 70)}px system-ui`;
+    const metrics = ctx.measureText(label);
+    const padding = 8;
+    const boxHeight = Math.max(26, ctx.canvas.height / 24);
+    const boxY = Math.max(0, labelY - boxHeight);
+    ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
+    ctx.fillRect(labelX, boxY, metrics.width + padding * 2, boxHeight);
+    ctx.fillStyle = "white";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, labelX + padding, boxY + boxHeight / 2);
+    ctx.restore();
   }
 }
 
-export default function DetectionWorkbench() {
-  const [animalId, setAnimalId] = useState("A023");
-  const [session, setSession] = useState<SamplingSession | null>(null);
-  const [files, setFiles] = useState<File[]>([]);
-  const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
-  const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
-  const [clientError, setClientError] = useState<string | null>(null);
-
-  const sessionId = session?.id ?? null;
-  const status: SessionStatus = session?.status ?? "READY";
-  const selectedEvidence =
-    session?.evidence_frames.find((frame) => frame.id === selectedEvidenceId) ??
-    session?.evidence_frames[0] ??
-    null;
+export default function RealtimeDetectionWorkbench() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const detectionsRef = useRef<Detection[]>([]);
+  const lastDrawnFrameRef = useRef(0);
+  const [streamStatus, setStreamStatus] = useState("连接电脑服务中…");
+  const [streamMeta, setStreamMeta] = useState<StreamStatusMessage | null>(null);
+  const [inference, setInference] = useState<InferenceMessage | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [videoFps, setVideoFps] = useState(0);
+  const [aiFps, setAiFps] = useState(0);
+  const [hasFrame, setHasFrame] = useState(false);
 
   useEffect(() => {
-    if (!sessionId || !ACTIVE_STATES.includes(status)) return;
-    const timer = window.setInterval(async () => {
-      try {
-        const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, { cache: "no-store" });
-        if (!response.ok) return;
-        const next = (await response.json()) as SamplingSession;
-        setSession(next);
-      } catch {
-        // Polling failure is transient; explicit actions surface their own errors.
-      }
-    }, 600);
-    return () => window.clearInterval(timer);
-  }, [sessionId, status]);
+    const ws = new WebSocket(VIEW_WS_URL);
+    ws.binaryType = "arraybuffer";
+    let videoFrames = 0;
+    let aiResults = 0;
+    let closed = false;
 
-  useEffect(() => {
-    return () => {
-      if (localPreviewUrl) URL.revokeObjectURL(localPreviewUrl);
+    const rateTimer = window.setInterval(() => {
+      setVideoFps(videoFrames);
+      setAiFps(aiResults);
+      videoFrames = 0;
+      aiResults = 0;
+    }, 1000);
+
+    ws.onopen = () => {
+      setStreamStatus("等待 Camera Bridge / GO 3S");
+      setError(null);
     };
-  }, [localPreviewUrl]);
 
-  const media = useMemo(() => {
-    if (selectedEvidence) {
-      return {
-        src: `${API_URL}${selectedEvidence.url}`,
-        width: selectedEvidence.image.width,
-        height: selectedEvidence.image.height,
-        detections: selectedEvidence.detections,
-      };
-    }
-    if (localPreviewUrl) {
-      return { src: localPreviewUrl, width: 1280, height: 720, detections: [] as Detection[] };
-    }
-    return null;
-  }, [localPreviewUrl, selectedEvidence]);
-
-  async function createSession() {
-    setClientError(null);
-    setSelectedEvidenceId(null);
-    try {
-      const response = await fetch(`${API_URL}/api/sessions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ animal_id: animalId.trim() || null }),
-      });
-      if (!response.ok) throw new Error(await parseApiError(response));
-      const created = (await response.json()) as SamplingSession;
-      if (localPreviewUrl) URL.revokeObjectURL(localPreviewUrl);
-      setFiles([]);
-      setLocalPreviewUrl(null);
-      setSession(created);
-    } catch (caught) {
-      setClientError(caught instanceof Error ? caught.message : "无法创建检查会话");
-    }
-  }
-
-  function onChooseFiles(event: ChangeEvent<HTMLInputElement>) {
-    const selected = Array.from(event.target.files ?? []).slice(0, 10);
-    if (localPreviewUrl) URL.revokeObjectURL(localPreviewUrl);
-    setFiles(selected);
-    setLocalPreviewUrl(selected[0] ? URL.createObjectURL(selected[0]) : null);
-    setClientError(null);
-  }
-
-  function uploadBatch(): Promise<SamplingSession> {
-    return new Promise((resolve, reject) => {
-      if (!session) {
-        reject(new Error("请先创建检查会话"));
+    ws.onmessage = async (event) => {
+      if (typeof event.data === "string") {
+        const payload = JSON.parse(event.data) as StreamStatusMessage | InferenceMessage | { type: string; message?: string };
+        if (payload.type === "stream_status") {
+          const status = payload as StreamStatusMessage;
+          setStreamMeta(status);
+          setStreamStatus(
+            status.status === "streaming"
+              ? `实时流 ${status.codec?.toUpperCase() ?? ""} · ${status.width ?? "?"}×${status.height ?? "?"} · ${status.source_fps ?? "?"} FPS`
+              : status.status === "waiting_config"
+                ? "Camera Bridge 已连接，等待 GO 3S 流参数"
+                : "等待 Camera Bridge / GO 3S",
+          );
+          return;
+        }
+        if (payload.type === "inference") {
+          const next = payload as InferenceMessage;
+          detectionsRef.current = next.detections;
+          setInference(next);
+          setError(null);
+          aiResults += 1;
+          return;
+        }
+        if (payload.type === "inference_error" || payload.type === "stream_error") {
+          setError(payload.message ?? "实时链路错误");
+          return;
+        }
         return;
       }
-      const form = new FormData();
-      files.forEach((file) => form.append("images", file, file.name));
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", `${API_URL}/api/ingest`);
-      xhr.upload.onloadstart = () => setSession((current) => (current ? { ...current, status: "RECEIVING" } : current));
-      xhr.upload.onloadend = () => setSession((current) => (current ? { ...current, status: "ANALYZING" } : current));
-      xhr.onerror = () => reject(new Error("无法连接 PetOrb Server"));
-      xhr.onload = () => {
-        let payload: unknown;
-        try {
-          payload = JSON.parse(xhr.responseText);
-        } catch {
-          reject(new Error(`HTTP ${xhr.status}`));
-          return;
-        }
-        if (xhr.status < 200 || xhr.status >= 300) {
-          const errorPayload = payload as { detail?: { message?: string } };
-          reject(new Error(errorPayload.detail?.message ?? `HTTP ${xhr.status}`));
-          return;
-        }
-        resolve(payload as SamplingSession);
-      };
-      xhr.send(form);
-    });
-  }
 
-  async function sendLocalBatch() {
-    if (!session || files.length === 0) return;
-    setClientError(null);
-    try {
-      const completed = await uploadBatch();
-      setSession(completed);
-      setSelectedEvidenceId(completed.evidence_frames[0]?.id ?? null);
-    } catch (caught) {
-      setClientError(caught instanceof Error ? caught.message : "批次上传失败");
-      try {
-        const response = await fetch(`${API_URL}/api/sessions/${session.id}`, { cache: "no-store" });
-        if (response.ok) setSession((await response.json()) as SamplingSession);
-      } catch {
-        // Preserve the explicit upload error when status refresh also fails.
+      const packet = event.data as ArrayBuffer;
+      if (packet.byteLength <= 4) return;
+      const frameId = new DataView(packet, 0, 4).getUint32(0, false);
+      const blob = new Blob([packet.slice(4)], { type: "image/jpeg" });
+      const bitmap = await createImageBitmap(blob);
+      if (closed || frameId < lastDrawnFrameRef.current) {
+        bitmap.close();
+        return;
       }
-    }
-  }
+      lastDrawnFrameRef.current = frameId;
+      setHasFrame(true);
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        bitmap.close();
+        return;
+      }
+      if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+      }
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        bitmap.close();
+        return;
+      }
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      drawDetections(ctx, detectionsRef.current);
+      bitmap.close();
+      videoFrames += 1;
+    };
 
-  const risk = session?.risk_level ? RISK_META[session.risk_level] : null;
-  const visibleError = session?.error ?? clientError;
+    ws.onerror = () => setError("无法连接 PetOrb 实时 WebSocket");
+    ws.onclose = () => setStreamStatus("PetOrb 实时 WebSocket 已断开");
+
+    return () => {
+      closed = true;
+      window.clearInterval(rateTimer);
+      ws.close();
+    };
+  }, []);
+
+  const risk = inference?.risk_level ? RISK_META[inference.risk_level] : null;
+  const aspectRatio = streamMeta?.width && streamMeta?.height ? `${streamMeta.width} / ${streamMeta.height}` : "16 / 9";
 
   return (
     <main className="min-h-screen bg-[#f3f5f7] p-4 lg:p-6">
@@ -216,232 +207,94 @@ export default function DetectionWorkbench() {
             <span className="h-9 w-9 rounded-full border-[9px] border-slate-950 bg-white" />
             <div>
               <div className="text-lg font-black tracking-tight">PetOrb</div>
-              <div className="text-xs text-slate-500">GO 3S Oral Detection Workbench</div>
+              <div className="text-xs text-slate-500">GO 3S Realtime Oral Detection</div>
             </div>
           </div>
-
-          <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
-            <input
-              aria-label="Animal ID"
-              value={animalId}
-              onChange={(event) => setAnimalId(event.target.value)}
-              disabled={session !== null && ACTIVE_STATES.includes(session.status)}
-              className="w-32 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold outline-none focus:border-slate-400 disabled:opacity-50"
-              placeholder="Animal ID"
-            />
-            <button
-              type="button"
-              onClick={createSession}
-              disabled={session !== null && ACTIVE_STATES.includes(session.status)}
-              className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              开始一次检查
-            </button>
-            <span
-              className={`rounded-full border px-3 py-1.5 text-xs font-black ${
-                status === "FAILED"
-                  ? "border-red-200 bg-red-50 text-red-700"
-                  : status === "COMPLETED"
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : status === "ANALYZING"
-                      ? "border-amber-200 bg-amber-50 text-amber-700"
-                      : "border-slate-200 bg-slate-50 text-slate-700"
-              }`}
-            >
-              {STATUS_LABEL[status]}
-            </span>
+          <div className="flex flex-wrap items-center gap-2 text-xs font-black">
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-slate-700">VIDEO {videoFps} FPS</span>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-slate-700">AI {aiFps} FPS</span>
+            <span className="rounded-full border border-slate-200 bg-slate-950 px-3 py-1.5 text-white">目标 30 / 10 FPS</span>
           </div>
         </header>
 
         <div className="grid flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1.85fr)_minmax(360px,1fr)]">
           <section className="flex min-h-[610px] flex-col border-b border-slate-200 bg-slate-950 p-4 lg:border-b-0 lg:border-r lg:p-6">
+            <div className="mb-4 flex items-center justify-between gap-3 text-sm text-slate-300">
+              <div className="font-bold">{streamStatus}</div>
+              <div className="font-mono text-xs text-slate-500">{VIEW_WS_URL}</div>
+            </div>
             <div
-              className="relative m-auto w-full max-w-[1120px] overflow-hidden rounded-2xl border border-white/10 bg-slate-900"
-              style={{ aspectRatio: media ? `${media.width} / ${media.height}` : "16 / 9" }}
+              className="relative m-auto grid w-full max-w-[1120px] place-items-center overflow-hidden rounded-2xl border border-white/10 bg-slate-900"
+              style={{ aspectRatio }}
             >
-              {media ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={media.src} alt="PetOrb 口腔证据画面" className="absolute inset-0 h-full w-full object-contain" />
-              ) : (
-                <div className="absolute inset-0 grid place-items-center text-center text-slate-500">
+              <canvas ref={canvasRef} className="h-full w-full object-contain" />
+              {!hasFrame && (
+                <div className="pointer-events-none absolute inset-0 grid place-items-center text-center text-slate-500">
                   <div>
                     <div className="mb-3 text-5xl">◎</div>
-                    <div className="font-bold text-slate-300">等待 GO 3S / Camera Bridge 采样</div>
-                    <div className="mt-1 text-sm">创建检查会话后，图像会自动归入当前会话</div>
+                    <div className="font-bold text-slate-300">等待 GO 3S 实时画面</div>
+                    <div className="mt-1 text-sm">Android Bridge 通过 USB/ADB reverse 推送 H.264/H.265</div>
                   </div>
                 </div>
               )}
-
-              {media && media.detections.length > 0 && (
-                <svg
-                  className="pointer-events-none absolute inset-0 h-full w-full"
-                  viewBox={`0 0 ${media.width} ${media.height}`}
-                  preserveAspectRatio="xMidYMid meet"
-                  aria-label="四点检测区域覆盖层"
-                >
-                  {media.detections.map((detection, index) => {
-                    const corners = [
-                      [detection.bbox.x1, detection.bbox.y1],
-                      [detection.bbox.x2, detection.bbox.y2],
-                      [detection.bbox.x3, detection.bbox.y3],
-                      [detection.bbox.x4, detection.bbox.y4],
-                    ] as const;
-                    const polygonPoints = corners.map(([x, y]) => `${x},${y}`).join(" ");
-                    const labelX = Math.min(...corners.map(([x]) => x));
-                    const labelY = Math.min(...corners.map(([, y]) => y));
-                    return (
-                      <g key={`${detection.label}-${index}`}>
-                        <polygon
-                          points={polygonPoints}
-                          fill="#fb7185"
-                          fillOpacity="0.12"
-                          stroke="#fb7185"
-                          strokeWidth={Math.max(2, media.width / 320)}
-                          strokeLinejoin="round"
-                          vectorEffect="non-scaling-stroke"
-                        />
-                        <rect
-                          x={labelX}
-                          y={Math.max(0, labelY - 30)}
-                          width="260"
-                          height="30"
-                          fill="#0f172a"
-                          fillOpacity="0.92"
-                        />
-                        <text x={labelX + 8} y={Math.max(20, labelY - 9)} fill="white" fontSize="16" fontWeight="700">
-                          {`${detection.display_label} ${(detection.confidence * 100).toFixed(0)}%`}
-                        </text>
-                      </g>
-                    );
-                  })}
-                </svg>
-              )}
             </div>
-
-            {session && session.evidence_frames.length > 0 && (
-              <div className="mx-auto mt-4 flex w-full max-w-[1120px] gap-3 overflow-x-auto">
-                {session.evidence_frames.map((frame, index) => (
-                  <button
-                    type="button"
-                    key={frame.id}
-                    onClick={() => setSelectedEvidenceId(frame.id)}
-                    className={`relative h-20 w-32 shrink-0 overflow-hidden rounded-xl border-2 ${
-                      selectedEvidence?.id === frame.id ? "border-white" : "border-white/15"
-                    }`}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={`${API_URL}${frame.url}`} alt={`证据帧 ${index + 1}`} className="h-full w-full object-cover" />
-                    <span className="absolute bottom-1 right-1 rounded bg-slate-950/80 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                      {index + 1}
-                    </span>
-                  </button>
-                ))}
+            {error && (
+              <div className="mx-auto mt-4 w-full max-w-[1120px] rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                {error}
               </div>
             )}
-
-            <details className="mx-auto mt-4 w-full max-w-[1120px] rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
-              <summary className="cursor-pointer font-bold text-slate-200">联调备用：没有 Camera Bridge 时手动发送 JPEG 批次</summary>
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <label className="cursor-pointer rounded-lg border border-white/15 px-3 py-2 font-bold text-white hover:bg-white/10">
-                  选择 1–10 张 JPEG
-                  <input className="hidden" type="file" accept="image/jpeg" multiple onChange={onChooseFiles} />
-                </label>
-                <button
-                  type="button"
-                  onClick={sendLocalBatch}
-                  disabled={!session || session.status !== "READY" || files.length === 0}
-                  className="rounded-lg bg-white px-4 py-2 font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-30"
-                >
-                  发送当前批次
-                </button>
-                <span className="text-slate-400">{files.length > 0 ? `已选择 ${files.length} 张` : "尚未选择图片"}</span>
-              </div>
-            </details>
           </section>
 
           <aside className="flex flex-col bg-white p-6 lg:p-8">
             <div className="mb-6">
-              <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Detection Result</div>
+              <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Realtime Detection</div>
               <div className="mt-2 flex items-start justify-between gap-4">
                 <div>
-                  <h1 className="text-3xl font-black tracking-tight text-slate-950">检测结果</h1>
+                  <h1 className="text-3xl font-black tracking-tight text-slate-950">实时检测</h1>
                   <p className="mt-2 text-sm text-slate-500">
-                    {session?.animal_id ? `Animal ID · ${session.animal_id}` : "等待开始检查"}
+                    {inference ? `最新 AI 帧 #${inference.frame_id}` : "等待本地 Detector 返回结果"}
                   </p>
                 </div>
                 {risk && <span className={`rounded-xl border px-3 py-2 text-xs font-black ${risk.className}`}>{risk.label}</span>}
               </div>
             </div>
 
-            {visibleError && (
-              <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-                <div className="font-black">本次检查失败</div>
-                <div className="mt-1 break-words">{visibleError}</div>
-              </div>
-            )}
-
-            {session?.status === "COMPLETED" ? (
-              <div className="space-y-5">
-                <section className="grid grid-cols-2 gap-3">
-                  <div className="rounded-2xl border border-slate-200 p-4">
-                    <div className="text-xs font-bold text-slate-400">采样质量</div>
-                    <div className="mt-1 text-lg font-black text-slate-900">{session.sample_quality === "usable" ? "可分析" : "—"}</div>
-                  </div>
-                  <div className="rounded-2xl border border-slate-200 p-4">
-                    <div className="text-xs font-bold text-slate-400">证据帧</div>
-                    <div className="mt-1 text-lg font-black text-slate-900">{session.evidence_frames.length} 张</div>
-                  </div>
-                </section>
-
-                <section>
-                  <h2 className="text-sm font-black text-slate-900">AI 观察</h2>
-                  <div className="mt-2 space-y-2">
-                    {session.findings.length > 0 ? (
-                      session.findings.map((finding) => (
-                        <button
-                          type="button"
-                          key={finding.label}
-                          onClick={() => setSelectedEvidenceId(finding.evidence_frame_id)}
-                          className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 text-left hover:border-slate-400"
-                        >
-                          <div>
-                            <div className="font-black text-slate-900">{finding.display_label}</div>
-                            <div className="mt-1 font-mono text-xs text-slate-400">{finding.label}</div>
-                          </div>
-                          <span className="rounded-lg bg-slate-950 px-2.5 py-1 text-xs font-black text-white">
-                            {(finding.confidence * 100).toFixed(0)}%
-                          </span>
-                        </button>
-                      ))
-                    ) : (
-                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-                        本次采样未发现可报告的异常目标。
+            <section className="space-y-2">
+              <h2 className="text-sm font-black text-slate-900">AI 观察</h2>
+              {inference?.detections.length ? (
+                inference.detections.map((detection, index) => (
+                  <article key={`${detection.label}-${index}`} className="rounded-2xl border border-slate-200 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-black text-slate-900">{detection.display_label}</div>
+                        <div className="mt-1 font-mono text-xs text-slate-400">{detection.label}</div>
                       </div>
-                    )}
-                  </div>
-                </section>
+                      <span className="rounded-lg bg-slate-950 px-2.5 py-1 text-xs font-black text-white">
+                        {(detection.confidence * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-dashed border-slate-300 p-5 text-sm leading-6 text-slate-500">
+                  {inference ? "当前 AI 帧未检测到 gingi / sarro。" : "GO 3S 画面进入电脑后，每 3 帧抽 1 帧送本机 AI。"}
+                </div>
+              )}
+            </section>
 
-                <section className="rounded-2xl bg-slate-50 p-5">
-                  <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">总体判断</div>
-                  <p className="mt-2 text-base font-bold leading-7 text-slate-900">{session.overall_judgment}</p>
-                </section>
+            <section className="mt-5 rounded-2xl bg-slate-50 p-5">
+              <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">总体判断</div>
+              <p className="mt-2 text-base font-bold leading-7 text-slate-900">
+                {inference?.overall_judgment ?? "等待实时检测结果。"}
+              </p>
+            </section>
 
-                <section className="rounded-2xl border border-slate-900 bg-slate-950 p-5 text-white">
-                  <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">建议</div>
-                  <p className="mt-2 text-base font-bold leading-7 text-white">{session.recommendation}</p>
-                </section>
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-slate-300 p-6 text-sm leading-7 text-slate-500">
-                {status === "READY" && session
-                  ? "检查会话已建立。等待 Camera Bridge 上传本次 GO 3S 采样图像。"
-                  : status === "RECEIVING"
-                    ? "正在接收本次采样 JPEG 批次……"
-                    : status === "ANALYZING"
-                      ? "图像已接收，正在逐张调用检测模型并生成证据。"
-                      : "点击“开始一次检查”建立 Sampling Session。"}
-              </div>
-            )}
+            <section className="mt-4 rounded-2xl border border-slate-900 bg-slate-950 p-5 text-white">
+              <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">建议</div>
+              <p className="mt-2 text-base font-bold leading-7 text-white">
+                {inference?.recommendation ?? "实时结果出现后，这里显示是否建议进一步人工检查或就医评估。"}
+              </p>
+            </section>
 
             <div className="mt-auto pt-8">
               <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-500">

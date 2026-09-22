@@ -17,3 +17,6 @@ PetOrb 比赛版中的极薄 Android 相机适配层。它只负责通过影石 
 ## 采样会话（Sampling Session）
 
 PetOrb 对一只动物的一次完整口腔采样与分析记录。比赛 MVP 同一时间只允许一个活动采样会话；Web 负责以 Animal ID 创建会话，Camera Bridge 上传的图像自动归入当前活动会话。
+## 实时流架构（2026-09-22）
+
+比赛主链已从“5 秒 JPEG 批次”切换为持续实时流：GO 3S PreviewStream H.264/H.265 由 Android Camera Bridge 原样通过 USB/ADB reverse WebSocket 转发到电脑；电脑 FastAPI 使用 FFmpeg 解码为约 30 FPS JPEG，全部帧用于 Web 实时显示，每 3 帧抽 1 帧送本机 Detector，目标约 10 FPS AI。AI 队列有界，满时丢旧帧，禁止积压实时延迟。

@@ -7,7 +7,6 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiNetworkSpecifier
-import android.os.SystemClock
 import com.arashivision.inskmp.insble.data.BleDeviceCore
 import com.arashivision.sdk.camera.InstaCameraSDK
 import com.arashivision.sdk.camera.api.CameraDevice
@@ -26,7 +25,6 @@ import com.arashivision.sdk.camera.core.model.option.WiFiData
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -38,11 +36,10 @@ import kotlin.coroutines.resumeWithException
 
 class Go3sCameraController(
     context: Context,
-    private val batchStore: BatchStore,
-    private val onStatus: (String) -> Unit,
+    private val onCameraStatus: (String) -> Unit,
+    private val onBridgeStatus: (String) -> Unit,
     private val onConnected: () -> Unit,
-    private val onFrameCount: (Int) -> Unit,
-    private val onSamplingComplete: (Int) -> Unit,
+    private val onStreamingChanged: (Boolean) -> Unit,
     private val onError: (Throwable) -> Unit,
 ) {
     private val application = context.applicationContext as Application
@@ -54,23 +51,23 @@ class Go3sCameraController(
     private var wifiCamera: CameraDevice? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var streamListener: CameraStreamListener? = null
-    private var decoder: PreviewJpegDecoder? = null
-    private var samplingJob: Job? = null
+    private var streamBridge: EncodedStreamBridge? = null
+    private var currentCodec = "h264"
 
     fun scanAndConnect() {
         scope.launch {
             runCatching {
                 initializeSdk()
-                onStatus("扫描 GO 3S…")
+                onCameraStatus("扫描 GO 3S…")
                 val bleDevice = scanFirstGo3s()
-                onStatus("蓝牙连接 ${bleDevice.name}…")
+                onCameraStatus("蓝牙连接 ${bleDevice.name}…")
                 val ble = CameraDevice.get(ConnectType.BLE)
                 bleCamera = ble
                 ble.connectBle(bleDevice, isBleOnly = false).getOrThrow()
                 ensureAuthorization(ble)
                 ensureApMode(ble)
                 val wifiData = ble.system.fetchWifiData().getOrThrow()
-                onStatus("连接 GO 3S Wi‑Fi：${wifiData.ssid}")
+                onCameraStatus("连接 GO 3S Wi-Fi：${wifiData.ssid}")
                 val network = requestCameraWifi(wifiData.ssid, wifiData.pwd)
                 check(connectivityManager.bindProcessToNetwork(network)) { "cannot bind process to GO 3S Wi-Fi" }
 
@@ -81,86 +78,90 @@ class Go3sCameraController(
                 wifi.connect(network.networkHandle).getOrThrow()
                 val type = wifi.system.getCameraType().getOrThrow()
                 check(type == CameraType.GO_3S) { "connected camera is ${type.displayName}, expected GO 3S" }
-                onStatus("GO 3S 已连接 · 可开始 5 秒采样")
+                onCameraStatus("GO 3S 已连接")
                 onConnected()
-            }.onFailure { error ->
-                onError(error)
-                onStatus("GO 3S 连接失败")
-                cleanupConnection()
-            }
+            }.onFailure(::handleConnectionFailure)
         }
     }
 
-    fun startFiveSecondSampling() {
+    fun startStreaming(streamUrl: String) {
         val device = wifiCamera
         if (device == null || !device.isConnected()) {
             onError(IllegalStateException("GO 3S 尚未连接"))
             return
         }
-        if (samplingJob?.isActive == true) return
+        if (streamListener != null) return
 
-        batchStore.clear()
-        onFrameCount(0)
-        samplingJob = scope.launch {
+        scope.launch {
             runCatching {
                 val encode = device.system.fetchVideoEncodeType().getOrThrow()
-                val codec = if (encode == VideoEncode.ENCODE_H265) VideoCodec.H265 else VideoCodec.H264
-                val gate = SamplingGate(SystemClock.elapsedRealtime())
-                var decoderInstance: PreviewJpegDecoder? = null
+                currentCodec = if (encode == VideoEncode.ENCODE_H265) "h265" else "h264"
+                val bridge = EncodedStreamBridge(
+                    url = streamUrl,
+                    onStatus = onBridgeStatus,
+                    onError = onError,
+                )
+                streamBridge = bridge
+                bridge.connect()
+
                 val listener = object : CameraStreamListener {
                     override fun onOpening() {
-                        onStatus("GO 3S 预览流启动中…")
+                        onCameraStatus("GO 3S Preview Stream 启动中…")
                     }
 
                     override fun onOpened() {
-                        onStatus("GO 3S 采样中 · ${if (codec == VideoCodec.H265) "H.265" else "H.264"}")
+                        onCameraStatus("GO 3S Preview Stream 已打开 · ${currentCodec.uppercase()}")
                         device.preview.requestStreamIframe()
                     }
 
-                    override fun onIdle() = Unit
+                    override fun onIdle() {
+                        onCameraStatus("GO 3S Preview Stream 空闲")
+                    }
 
                     override fun onParamsChanged(paramsUpdate: PreviewStreamParamsUpdate) {
-                        if (paramsUpdate.previewWidth <= 0 || paramsUpdate.previewHeight <= 0 || decoderInstance != null) return
-                        decoderInstance = PreviewJpegDecoder(
-                            videoCodec = codec,
+                        if (paramsUpdate.previewWidth <= 0 || paramsUpdate.previewHeight <= 0) return
+                        bridge.setStreamMetadata(
+                            codec = currentCodec,
                             width = paramsUpdate.previewWidth,
                             height = paramsUpdate.previewHeight,
-                            batchStore = batchStore,
-                            samplingGate = gate,
-                            onFrameSaved = onFrameCount,
-                            onError = onError,
+                            fps = paramsUpdate.previewFps,
                         )
-                        decoder = decoderInstance
-                        onStatus(
-                            "GO 3S 采样中 · ${paramsUpdate.previewWidth}×${paramsUpdate.previewHeight} ${paramsUpdate.previewFps}fps",
+                        onCameraStatus(
+                            "GO 3S 实时流 · ${paramsUpdate.previewWidth}×${paramsUpdate.previewHeight} ${paramsUpdate.previewFps} FPS · ${currentCodec.uppercase()}",
                         )
+                        device.preview.requestStreamIframe()
                     }
 
                     override fun onStreamDataNotify(streamData: PreviewStreamFrame) {
                         if (!streamData.type.isVideo) return
-                        decoderInstance?.offer(streamData.data, streamData.timestamp)
+                        bridge.sendEncodedVideo(streamData.data)
                     }
                 }
                 streamListener = listener
                 device.preview.init(application)
                 device.preview.registerCameraStreamListener(listener)
                 device.preview.startStream()
-                delay(SAMPLING_WINDOW_MS)
-                finishSampling(device)
+                onStreamingChanged(true)
             }.onFailure { error ->
+                stopStreamingInternal(device)
+                onStreamingChanged(false)
                 onError(error)
-                stopPreviewOnly(device)
-                cleanupConnection()
             }
         }
     }
 
+    fun stopStreaming() {
+        val device = wifiCamera ?: return
+        stopStreamingInternal(device)
+        onStreamingChanged(false)
+        onCameraStatus("GO 3S 已连接 · 实时流已停止")
+    }
+
     fun disconnect() {
-        samplingJob?.cancel()
-        samplingJob = null
-        wifiCamera?.let(::stopPreviewOnly)
+        wifiCamera?.let(::stopStreamingInternal)
         cleanupConnection()
-        onStatus("GO 3S 已断开")
+        onStreamingChanged(false)
+        onCameraStatus("GO 3S 已断开")
     }
 
     fun release() {
@@ -229,7 +230,7 @@ class Go3sCameraController(
             when (device.checkAuthorization().getOrThrow()) {
                 AuthorizationStatus.AUTHORIZED -> return
                 AuthorizationStatus.UNAUTHORIZED -> {
-                    onStatus("请在 GO 3S 上确认连接授权…")
+                    onCameraStatus("请在 GO 3S 上确认连接授权…")
                     withTimeout(AUTH_TIMEOUT_MS) { authorization.await() }
                 }
                 AuthorizationStatus.SYSTEM_BUSY -> error("GO 3S 正忙，无法检查授权")
@@ -278,27 +279,12 @@ class Go3sCameraController(
             }
         }
 
-    private suspend fun finishSampling(device: CameraDevice) {
-        stopPreviewOnly(device)
-        val count = batchStore.listFrames().size
-        runCatching { device.disconnect().getOrThrow() }
-        runCatching { device.release() }
-        wifiCamera = null
-        connectivityManager.bindProcessToNetwork(null)
-        unregisterNetworkCallback()
-        if (count == 0) {
-            onError(IllegalStateException("5 秒采样未获得可解码 JPEG，请检查预览码流/MediaCodec"))
-        }
-        onSamplingComplete(count)
-        onStatus("采样完成 · $count 张 JPEG · 请连接电脑热点后上传")
-    }
-
-    private fun stopPreviewOnly(device: CameraDevice) {
+    private fun stopStreamingInternal(device: CameraDevice) {
         streamListener?.let { listener -> runCatching { device.preview.unregisterCameraStreamListener(listener) } }
         streamListener = null
         runCatching { device.preview.stopStream() }
-        decoder?.release()
-        decoder = null
+        streamBridge?.close()
+        streamBridge = null
     }
 
     private fun cleanupConnection() {
@@ -318,9 +304,14 @@ class Go3sCameraController(
         runCatching { connectivityManager.unregisterNetworkCallback(callback) }
     }
 
+    private fun handleConnectionFailure(error: Throwable) {
+        onError(error)
+        onCameraStatus("GO 3S 连接失败")
+        cleanupConnection()
+    }
+
     companion object {
         private const val BLE_SCAN_MS = 10_000L
         private const val AUTH_TIMEOUT_MS = 30_000L
-        private const val SAMPLING_WINDOW_MS = 5_000L
     }
 }

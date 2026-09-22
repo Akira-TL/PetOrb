@@ -1,4 +1,4 @@
-.PHONY: build demo status stop android web server
+.PHONY: build demo status stop bridge android web server
 
 build:
 	./scripts/build-demo.sh
@@ -11,6 +11,9 @@ status:
 
 stop:
 	./scripts/stop-demo.sh
+
+bridge:
+	./scripts/bridge-usb.sh
 
 android:
 	cd apps/android-camera-bridge && ./gradlew assembleDebug
