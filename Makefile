@@ -1,10 +1,13 @@
-.PHONY: build demo status stop bridge android web server
+.PHONY: build demo detector status stop bridge android web server
 
 build:
 	./scripts/build-demo.sh
 
 demo:
 	./scripts/run-demo.sh
+
+detector:
+	./scripts/run-detector.sh
 
 status:
 	./scripts/status-demo.sh

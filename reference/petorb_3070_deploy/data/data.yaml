@@ -1,0 +1,9 @@
+path: data
+train: valid/images
+val: valid/images
+test: valid/images
+
+nc: 2
+names:
+  0: gingi
+  1: sarro

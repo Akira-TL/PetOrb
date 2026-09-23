@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PetOrb 口腔风险观察</title>
+  <style>
+    :root {
+      --bg: #0f1412;
+      --panel: #171d1a;
+      --line: #2a3530;
+      --text: #e8f0eb;
+      --muted: #8ea399;
+      --live: #3dd68c;
+      --ai: #6cb6ff;
+      --low: #3dd68c;
+      --mid: #e6b84d;
+      --high: #ff6b6b;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    header {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      padding: 14px 22px 10px;
+      border-bottom: 1px solid var(--line);
+    }
+    header h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 0.04em;
+    }
+    header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    main {
+      flex: 1 0 auto;
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 16px;
+      padding: 16px 22px;
+      min-height: auto;
+    }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px 16px 16px;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .hd {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .hd h2 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .pill {
+      font-variant-numeric: tabular-nums;
+      font-size: 12px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #223028;
+      color: var(--live);
+    }
+    .stage {
+      position: relative;
+      flex: 1;
+      min-height: 280px;
+      background: #0b0f0d;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .stage img, .stage canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .stage img { object-fit: contain; }
+    .empty {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .ai-img {
+      width: 100%;
+      max-height: 280px;
+      object-fit: contain;
+      background: #0b0f0d;
+      border-radius: 8px;
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .card span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    .card b {
+      font-size: 22px;
+      font-variant-numeric: tabular-nums;
+      color: var(--ai);
+    }
+    .risk {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 4px 0 10px;
+    }
+    .badge {
+      min-width: 48px;
+      text-align: center;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-weight: 700;
+    }
+    .badge.low { background: #1a3a2a; color: var(--low); }
+    .badge.medium { background: #3a3218; color: var(--mid); }
+    .badge.high { background: #3a1c1c; color: var(--high); }
+    .boxes {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      max-height: 140px;
+      overflow: auto;
+      font-size: 13px;
+    }
+    .boxes li {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid #243029;
+    }
+    .advice {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: #202824;
+      line-height: 1.5;
+      font-size: 14px;
+    }
+    footer {
+      padding: 10px 22px 14px;
+      color: #c9b56a;
+      font-size: 13px;
+      border-top: 1px solid var(--line);
+    }
+    @media (max-width: 980px) {
+      main { grid-template-columns: 1fr; }
+      section { min-height: 0; }
+      .stage { min-height: 320px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PetOrb</h1>
+    <p>口腔辅助风险观察</p>
+  </header>
+  <main>
+    <section>
+      <div class="hd">
+        <h2>实时画面</h2>
+        <div class="pill">接收 <span id="liveFps">0.0</span> FPS</div>
+      </div>
+      <div class="stage" id="liveStage">
+        <img id="liveImg" alt="实时画面" hidden />
+        <canvas id="obb"></canvas>
+        <div class="empty" id="liveEmpty">等待手机预览帧</div>
+      </div>
+    </section>
+    <section>
+      <div class="hd">
+        <h2>最新 AI 帧</h2>
+        <div class="pill">推理 <span id="aiMs">—</span> ms</div>
+      </div>
+      <img class="ai-img" id="aiImg" alt="AI 检测帧" hidden />
+      <div class="empty" id="aiEmpty" style="position:relative;min-height:160px">尚无检测结果</div>
+      <div class="metrics">
+        <div class="card"><span>AI 处理 FPS</span><b id="aiFps">0.0</b></div>
+        <div class="card"><span>检测框</span><b id="boxN">0</b></div>
+      </div>
+      <div class="hd"><h2>风险等级</h2></div>
+      <div class="risk">
+        <div class="badge low" id="riskBadge">等待</div>
+        <div id="summary">等待画面</div>
+      </div>
+      <div class="hd"><h2>检测结果</h2></div>
+      <ul class="boxes" id="boxList"><li style="color:#8ea399">暂无</li></ul>
+      <div class="advice" id="advice">是否建议人工检查 / 就医：否</div>
+    </section>
+  </main>
+  <footer>PetOrb 提供辅助风险观察，不构成医疗诊断。</footer>
+  <script>
+    const liveImg = document.getElementById("liveImg");
+    const aiImg = document.getElementById("aiImg");
+    const canvas = document.getElementById("obb");
+    const liveEmpty = document.getElementById("liveEmpty");
+    const aiEmpty = document.getElementById("aiEmpty");
+    const colors = { gingi: "#3dd68c", sarro: "#ffb020" };
+    let state = { boxes: [], image_w: 0, image_h: 0 };
+    let liveOn = false;
+    let liveLoading = false;
+    let aiLoading = false;
+
+    function fitRect(cw, ch, iw, ih) {
+      if (!iw || !ih) return { x: 0, y: 0, w: cw, h: ch };
+      const s = Math.min(cw / iw, ch / ih);
+      const w = iw * s, h = ih * s;
+      return { x: (cw - w) / 2, y: (ch - h) / 2, w, h };
+    }
+
+    function drawObb() {
+      const stage = document.getElementById("liveStage");
+      const dpr = window.devicePixelRatio || 1;
+      const cw = stage.clientWidth, ch = stage.clientHeight;
+      canvas.width = Math.round(cw * dpr);
+      canvas.height = Math.round(ch * dpr);
+      canvas.style.width = cw + "px";
+      canvas.style.height = ch + "px";
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, cw, ch);
+      const iw = state.image_w || liveImg.naturalWidth;
+      const ih = state.image_h || liveImg.naturalHeight;
+      const r = fitRect(cw, ch, iw, ih);
+      for (const b of state.boxes || []) {
+        const poly = b.poly || [];
+        if (poly.length < 4) continue;
+        ctx.beginPath();
+        poly.forEach((p, i) => {
+          const x = r.x + (p[0] / iw) * r.w;
+          const y = r.y + (p[1] / ih) * r.h;
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.closePath();
+        ctx.strokeStyle = colors[b.cls] || "#6cb6ff";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        const label = `${b.cls} ${(b.conf * 100).toFixed(0)}%`;
+        ctx.font = "13px Segoe UI, Microsoft YaHei, sans-serif";
+        const labelW = ctx.measureText(label).width + 10;
+        const px = r.x + (poly[0][0] / iw) * r.w;
+        const py = r.y + (poly[0][1] / ih) * r.h;
+        const lx = Math.max(2, Math.min(cw - labelW - 2, px));
+        const ly = Math.max(2, py - 23);
+        ctx.fillStyle = "rgba(11, 15, 13, .86)";
+        ctx.fillRect(lx, ly, labelW, 19);
+        ctx.fillStyle = colors[b.cls] || "#6cb6ff";
+        ctx.fillText(label, lx + 5, ly + 14);
+      }
+    }
+
+    function refreshLive() {
+      if (liveLoading) return;
+      liveLoading = true;
+      const img = new Image();
+      img.onload = () => {
+        liveLoading = false;
+        liveImg.src = img.src;
+        liveImg.hidden = false;
+        liveEmpty.hidden = true;
+        liveOn = true;
+        drawObb();
+      };
+      img.onerror = () => { liveLoading = false; };
+      img.src = "/live.jpg?t=" + Date.now();
+    }
+
+    function refreshAi() {
+      if (aiLoading) return;
+      aiLoading = true;
+      const img = new Image();
+      img.onload = () => {
+        aiLoading = false;
+        aiImg.src = img.src;
+        aiImg.hidden = false;
+        aiEmpty.hidden = true;
+      };
+      img.onerror = () => { aiLoading = false; };
+      img.src = "/ai.jpg?t=" + Date.now();
+    }
+
+    async function refreshState() {
+      try {
+        const res = await fetch("/api/state", { cache: "no-store" });
+        state = await res.json();
+        document.getElementById("liveFps").textContent = (state.live_fps ?? 0).toFixed(1);
+        document.getElementById("aiFps").textContent = (state.ai_fps ?? 0).toFixed(1);
+        document.getElementById("aiMs").textContent = state.frames ? state.ai_ms : "—";
+        document.getElementById("boxN").textContent = (state.boxes || []).length;
+        document.getElementById("summary").textContent = state.summary || "等待画面";
+        const badge = document.getElementById("riskBadge");
+        const stale = state.frames && Date.now() - state.updated_ms > 5000;
+        badge.textContent = stale ? "历史" : state.frames ? (state.risk || "低") : "等待";
+        badge.className = "badge " + (state.risk_level || "low");
+        if (stale) document.getElementById("summary").textContent = "画面已中断，以下为上次检测结果";
+        const list = document.getElementById("boxList");
+        if (!state.boxes || !state.boxes.length) {
+          list.innerHTML = '<li style="color:#8ea399">暂无</li>';
+        } else {
+          list.innerHTML = state.boxes.map((b) =>
+            `<li><span>${b.cls}</span><span>${(b.conf * 100).toFixed(1)}%</span></li>`
+          ).join("");
+        }
+        const check = state.recommend_check ? "建议人工检查" : "暂不建议人工检查";
+        const med = state.recommend_medical ? "建议就医" : "暂不建议就医";
+        document.getElementById("advice").textContent = `是否建议人工检查 / 就医：${check}；${med}`;
+        if (liveOn) drawObb();
+      } catch (e) { /* server starting */ }
+    }
+
+    setInterval(refreshLive, 125);
+    setInterval(refreshAi, 200);
+    setInterval(refreshState, 500);
+    window.addEventListener("resize", drawObb);
+    refreshState();
+  </script>
+</body>
+</html>

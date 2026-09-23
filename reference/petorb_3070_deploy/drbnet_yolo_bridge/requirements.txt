@@ -1,0 +1,5 @@
+torch
+torchvision
+ultralytics>=8.3
+numpy
+opencv-python

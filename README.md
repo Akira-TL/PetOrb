@@ -309,3 +309,69 @@ AI 实际 FPS
 11. 浏览器打开 :3000
 12. 调实际 FPS / 编码 / FFmpeg 参数
 ```
+
+---
+
+## 10. 已整合的 2026-09-23 代码包
+
+Windows 微信收到的 `petorb.zip` 已整合进仓库，同时保留当前实时 30/10 FPS 主架构。
+
+### 本地 Detector（已接入主链）
+
+```text
+apps/detector/
+```
+
+模型权重来自导入包：
+
+```text
+reference/petorb_3070_deploy/weights/best.pt
+```
+
+RTX 3070 现场机先按 CUDA 环境安装 PyTorch，再安装：
+
+```powershell
+python -m pip install -r apps\detector\requirements.txt
+```
+
+启动：
+
+```bash
+make detector
+```
+
+或 Windows：
+
+```powershell
+.\scripts\run-detector.ps1
+```
+
+然后 Detector 位于：
+
+```text
+http://127.0.0.1:9000
+```
+
+### 原代码包参考实现
+
+完整电脑端交付包保留在：
+
+```text
+reference/petorb_3070_deploy/
+```
+
+其中包含：
+
+- `weights/best.pt` YOLO11m-OBB 权重；
+- `scripts/` 旧 JPEG / 8080 检测服务和验证脚本；
+- `web/` 旧技术页和用户页；
+- `drbnet_yolo_bridge/` DRBNet × YOLO 结构实验；
+- 原交接文档和启动说明。
+
+修改过的 Insta360 官方 Demo 保留在：
+
+```text
+reference/AndroidSDKDemo/
+```
+
+其中包括旧 `PcDetectBridge.kt` PixelCopy JPEG 传输方案，可作为现场 fallback/reference；它**不是**当前实时 raw H.264/H.265 主链。参考 Demo 中原先内嵌的 Maven 凭据已移除，改为从环境变量读取。
